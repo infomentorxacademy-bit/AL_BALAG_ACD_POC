@@ -29,7 +29,8 @@
         "BLUETOOTH_CONNECT",
         "MODIFY_AUDIO_SETTINGS"
       ],
-      "predictiveBackGestureEnabled": false
+      "predictiveBackGestureEnabled": false,
+      "allowBackup": false
     },
     "web": {
       "favicon": "./assets/favicon.png"
@@ -39,8 +40,12 @@
       [
         "expo-build-properties",
         {
-          "android": { "minSdkVersion": 28 },
-          "ios": { "deploymentTarget": "16.4" }
+          "android": {
+            "minSdkVersion": 28
+          },
+          "ios": {
+            "deploymentTarget": "16.4"
+          }
         }
       ]
     ]
