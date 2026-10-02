@@ -1,0 +1,48 @@
+{
+  "expo": {
+    "name": "AL Balag POC",
+    "slug": "al-balag-acd-poc",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "light",
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.albalag.acdpoc",
+      "infoPlist": {
+        "NSCameraUsageDescription": "Camera is used for video in Zoom meetings.",
+        "NSMicrophoneUsageDescription": "Microphone is used for audio in Zoom meetings.",
+        "NSPhotoLibraryUsageDescription": "Photos can be shared in chat."
+      }
+    },
+    "android": {
+      "package": "com.albalag.acdpoc",
+      "adaptiveIcon": {
+        "backgroundColor": "#E6F4FE",
+        "foregroundImage": "./assets/android-icon-foreground.png",
+        "backgroundImage": "./assets/android-icon-background.png",
+        "monochromeImage": "./assets/android-icon-monochrome.png"
+      },
+      "permissions": [
+        "CAMERA",
+        "RECORD_AUDIO",
+        "BLUETOOTH_CONNECT",
+        "MODIFY_AUDIO_SETTINGS"
+      ],
+      "predictiveBackGestureEnabled": false
+    },
+    "web": {
+      "favicon": "./assets/favicon.png"
+    },
+    "plugins": [
+      "expo-dev-client",
+      [
+        "expo-build-properties",
+        {
+          "android": { "minSdkVersion": 26 },
+          "ios": { "deploymentTarget": "16.4" }
+        }
+      ]
+    ]
+  }
+}
