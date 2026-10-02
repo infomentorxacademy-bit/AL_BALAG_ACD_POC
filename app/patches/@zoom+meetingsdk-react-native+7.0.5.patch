@@ -1,0 +1,28 @@
+diff --git a/node_modules/@zoom/meetingsdk-react-native/android/build.gradle b/node_modules/@zoom/meetingsdk-react-native/android/build.gradle
+index 2a0ac0a..69d0504 100644
+--- a/node_modules/@zoom/meetingsdk-react-native/android/build.gradle
++++ b/node_modules/@zoom/meetingsdk-react-native/android/build.gradle
+@@ -5,7 +5,6 @@ buildscript {
+   repositories {
+     google()
+     mavenCentral()
+-    jcenter()
+   }
+ 
+   dependencies {
+@@ -35,7 +34,6 @@ android {
+     targetSdkVersion getExtOrIntegerDefault('targetSdkVersion')
+     versionCode 1
+     versionName "1.0"
+-    ndkVersion = "24.0.8215888"
+ 
+   }
+ 
+@@ -60,7 +58,6 @@ android {
+ repositories {
+   google()
+   mavenCentral()
+-  jcenter()
+ 
+   def found = false
+   def defaultDir = null
