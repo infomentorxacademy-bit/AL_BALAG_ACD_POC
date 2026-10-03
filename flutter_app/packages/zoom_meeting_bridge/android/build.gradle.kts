@@ -33,6 +33,14 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
 
+    buildFeatures {
+        // Zoom's meeting screens are built with ViewBinding. Enabling it here adds
+        // androidx.databinding:viewbinding to the app, otherwise Zoom's ZmConfActivity crashes with
+        // "NoClassDefFoundError: androidx.viewbinding.ViewBinding" as soon as a meeting starts.
+        // (Zoom's own React Native wrapper enables the same flag.)
+        viewBinding = true
+    }
+
     defaultConfig {
         // The Zoom Meeting SDK requires API 28+.
         minSdk = 28
