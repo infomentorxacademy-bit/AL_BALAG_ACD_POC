@@ -56,6 +56,11 @@ jobs:
       # Compiles the Flutter app, the Zoom bridge plugin (Java) and the Zoom SDK for real.
       - name: Build debug APK
         run: flutter build apk --debug
+      # Diagnostics: which Jetpack Compose versions does the app actually ship? (Zoom needs matching ones.)
+      - name: Print resolved Compose versions
+        run: |
+          cd android
+          ./gradlew :app:dependencies --configuration debugRuntimeClasspath | grep -E "androidx.compose.(foundation|ui|runtime|animation|material3?):[a-z-]+:" | sed 's/^[| +\\-]*//' | sort -u
       - uses: actions/upload-artifact@v4
         with:
           name: al-balag-poc-debug-apk
@@ -63,7 +68,7 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
-  # Release build (R8 shrinking + AOT). Runs in parallel; it is what you would ship (still debug-signed).
+  # Release build (AOT). Runs in parallel; it is what you would ship (still debug-signed).
   android-release:
     runs-on: ubuntu-latest
     defaults:
