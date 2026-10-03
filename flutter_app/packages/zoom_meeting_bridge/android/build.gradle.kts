@@ -51,4 +51,15 @@ android {
 dependencies {
     // The official SDK's POM declares all of its transitive dependencies, so one line is enough.
     implementation("us.zoom.meetingsdk:zoomsdk:7.0.5")
+
+    // Zoom's join screens (Jetpack Compose) are built against Compose 1.9.4 (see the versions.gradle of
+    // Zoom's own React Native wrapper). Its POM only pulls foundation/animation 1.8.1, which lacks methods
+    // Zoom calls (NoSuchMethodError: ToggleableKt.toggleable) and crashes the app on Join. Gradle always
+    // takes the highest requested version, so listing 1.9.4 here upgrades them.
+    val compose = "1.9.4"
+    implementation("androidx.compose.foundation:foundation:$compose")
+    implementation("androidx.compose.foundation:foundation-layout:$compose")
+    implementation("androidx.compose.animation:animation:$compose")
+    implementation("androidx.compose.animation:animation-core:$compose")
+    implementation("androidx.compose.material:material-ripple:$compose")
 }
