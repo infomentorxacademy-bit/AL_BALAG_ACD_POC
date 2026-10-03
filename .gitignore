@@ -10,3 +10,7 @@ __pycache__/
 .venv/
 .pytest_cache/
 .DS_Store
+venv/
+.idea/
+build-log.txt
+flutter_app/android/build/
