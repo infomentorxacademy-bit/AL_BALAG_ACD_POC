@@ -5,6 +5,11 @@
          to allow setting breakpoints, to provide hot reload, etc.
     -->
     <uses-permission android:name="android.permission.INTERNET"/>
-    <!-- Development only: lets the app call the local http:// backend. Release builds stay https-only. -->
-    <application android:usesCleartextTraffic="true" tools:targetApi="m"/>
+    <!-- Development only: lets the app call the local http:// backend. The Zoom SDK ships its own
+         networkSecurityConfig and cleartext=false, so both are overridden here. Release stays https-only. -->
+    <application
+        android:usesCleartextTraffic="true"
+        android:networkSecurityConfig="@xml/dev_network_security_config"
+        tools:replace="android:usesCleartextTraffic,android:networkSecurityConfig"
+        tools:targetApi="n" />
 </manifest>

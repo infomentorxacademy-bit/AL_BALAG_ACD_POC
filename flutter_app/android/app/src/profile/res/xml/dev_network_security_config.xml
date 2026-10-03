@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Development builds only: allow http:// so the app can reach the local backend server.
+     Release builds use the Zoom SDK's stricter default (https only). -->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="true" />
+</network-security-config>
