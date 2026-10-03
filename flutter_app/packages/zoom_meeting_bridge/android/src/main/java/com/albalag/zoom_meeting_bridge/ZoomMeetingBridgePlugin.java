@@ -42,12 +42,40 @@ import us.zoom.sdk.ZoomSDKInitializeListener;
  * initialize(jwt) -> onZoomSDKInitializeResult -> joinMeetingWithParams.
  */
 public class ZoomMeetingBridgePlugin
-    implements FlutterPlugin, MethodCallHandler, ActivityAware, EventChannel.StreamHandler,
-    ZoomSDKInitializeListener, MeetingServiceListener {
+    implements FlutterPlugin, MethodCallHandler, ActivityAware, EventChannel.StreamHandler {
+
+  // Zoom's interfaces are deliberately NOT supertypes of this class: the app module compiles
+  // against this class (GeneratedPluginRegistrant) but does not see the Zoom SDK classpath.
 
   private static final String TAG = "ZoomMeetingBridge";
 
   private final Handler mainHandler = new Handler(Looper.getMainLooper());
+
+  private final ZoomSDKInitializeListener initListener = new ZoomSDKInitializeListener() {
+    @Override
+    public void onZoomSDKInitializeResult(int errorCode, int internalErrorCode) {
+      handleInitResult(errorCode, internalErrorCode);
+    }
+
+    @Override
+    public void onZoomAuthIdentityExpired() {
+      Map<String, Object> event = new HashMap<>();
+      event.put("type", "authExpired");
+      emit(event);
+    }
+  };
+
+  private final MeetingServiceListener meetingListener = new MeetingServiceListener() {
+    @Override
+    public void onMeetingStatusChanged(MeetingStatus status, int errorCode, int internalErrorCode) {
+      handleMeetingStatus(status, errorCode, internalErrorCode);
+    }
+
+    @Override
+    public void onMeetingParameterNotification(MeetingParameter meetingParameter) {
+      // Not needed for this bridge.
+    }
+  };
 
   private MethodChannel methodChannel;
   private EventChannel eventChannel;
@@ -163,7 +191,7 @@ public class ZoomMeetingBridgePlugin
         params.enableGenerateDump = true;
         // Zoom's own React Native wrapper reports wrapperType 2; Flutter has no dedicated value.
         params.wrapperType = 2;
-        ZoomSDK.getInstance().initialize(uiContext(), this, params);
+        ZoomSDK.getInstance().initialize(uiContext(), initListener, params);
         result.success(true);
       } catch (Exception e) {
         Log.e(TAG, "initialize failed", e);
@@ -206,15 +234,14 @@ public class ZoomMeetingBridgePlugin
     });
   }
 
-  // ---- ZoomSDKInitializeListener ----
+  // ---- Zoom callbacks (see the listener fields above) ----
 
-  @Override
-  public void onZoomSDKInitializeResult(int errorCode, int internalErrorCode) {
+  private void handleInitResult(int errorCode, int internalErrorCode) {
     Log.d(TAG, "onZoomSDKInitializeResult " + errorCode + "/" + internalErrorCode);
     if (errorCode == ZoomError.ZOOM_ERROR_SUCCESS) {
       MeetingService meetingService = ZoomSDK.getInstance().getMeetingService();
       if (meetingService != null) {
-        meetingService.addListener(this);
+        meetingService.addListener(meetingListener);
       }
     }
     Map<String, Object> event = new HashMap<>();
@@ -225,17 +252,7 @@ public class ZoomMeetingBridgePlugin
     emit(event);
   }
 
-  @Override
-  public void onZoomAuthIdentityExpired() {
-    Map<String, Object> event = new HashMap<>();
-    event.put("type", "authExpired");
-    emit(event);
-  }
-
-  // ---- MeetingServiceListener ----
-
-  @Override
-  public void onMeetingStatusChanged(MeetingStatus status, int errorCode, int internalErrorCode) {
+  private void handleMeetingStatus(MeetingStatus status, int errorCode, int internalErrorCode) {
     Log.d(TAG, "onMeetingStatusChanged " + status + " " + errorCode + "/" + internalErrorCode);
     Map<String, Object> event = new HashMap<>();
     event.put("type", "meetingStatus");
@@ -244,11 +261,6 @@ public class ZoomMeetingBridgePlugin
     event.put("name", constantName(MeetingError.class, errorCode, "MEETING_ERROR_"));
     event.put("internalCode", internalErrorCode);
     emit(event);
-  }
-
-  @Override
-  public void onMeetingParameterNotification(MeetingParameter meetingParameter) {
-    // Not needed for this bridge.
   }
 
   // ---- helpers ----
