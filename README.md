@@ -1,54 +1,63 @@
 # AL Balag Academy POC
 
-React Native (Expo) proof of concept with:
+A proof of concept for **in-app chat** (Sendbird) and **in-app Zoom meetings** (Zoom Meeting SDK).
 
-- **Sendbird Chat** – real-time group chat in a shared public room (`@sendbird/chat` JS SDK + a minimal custom UI)
-- **Zoom Meeting SDK** – join a Zoom meeting natively in-app (`@zoom/meetingsdk-react-native`)
-- **FastAPI backend** (`server/`) – signs Zoom SDK JWTs so the SDK secret never ships in the app
+| Folder | What it is |
+|---|---|
+| [`flutter_app/`](flutter_app) | **Main app: Flutter** (Android + iOS). Start here. |
+| [`server/`](server) | FastAPI backend that signs Zoom SDK tokens (the Zoom secret never ships in the app). |
+| [`app/`](app) | Earlier React Native (Expo) version, kept for reference. Superseded by `flutter_app/`. |
 
 ```
-app/      Expo (TypeScript) mobile app
-server/   FastAPI service: POST /zoom/signature
+┌──────────────┐  chat   ┌───────────┐
+│ Flutter app  │────────▶│ Sendbird  │
+│              │         └───────────┘
+│  Chat tab    │  token  ┌────────────┐        ┌──────┐
+│  Meeting tab │────────▶│ FastAPI    │        │ Zoom │
+│              │         │ /zoom/...  │        │      │
+│  zoom_meeting│  join (native Zoom Meeting SDK, no server in the media path)
+│  _bridge ────┼────────────────────────────────▶      │
+└──────────────┘                                └──────┘
 ```
 
-## Prerequisites (one-time)
+## Quick start
 
-1. **Sendbird**: create an app at https://dashboard.sendbird.com and copy the *Application ID*.
-2. **Zoom**: at https://marketplace.zoom.us create a **Meeting SDK** app and copy its *SDK Key* and *SDK Secret*.
-3. Android Studio (and/or Xcode on macOS), Node 20+, Python 3.11+.
+1. **Backend** (needs your Zoom Meeting SDK Client ID and Secret):
+   ```bash
+   cd server
+   cp .env.example .env            # fill ZOOM_SDK_KEY / ZOOM_SDK_SECRET
+   python -m venv .venv && source .venv/bin/activate   # Windows: .venv\Scripts\activate
+   pip install -r requirements.txt
+   uvicorn main:app --host 0.0.0.0 --port 8000
+   ```
+2. **App**: see [`flutter_app/README.md`](flutter_app/README.md). The short version:
+   ```bash
+   cd flutter_app
+   flutter pub get
+   flutter run --dart-define=API_BASE_URL=http://<your-computer-LAN-IP>:8000
+   ```
 
-## Run the backend
+No local Android toolchain? Every push builds an installable APK in GitHub Actions
+(**Actions > CI > latest run > Artifacts > `al-balag-poc-debug-apk`**).
+
+## Credentials
+
+- **Sendbird App ID** is a public client identifier and is already the default in the app.
+- **Zoom Client ID / Secret** go only in `server/.env` (gitignored). Never commit or paste the secret.
+  Create a *Meeting SDK* app at https://marketplace.zoom.us (Develop > Build App).
+
+## Tests
 
 ```bash
-cd server
-cp .env.example .env        # fill ZOOM_SDK_KEY / ZOOM_SDK_SECRET
-python -m venv .venv && source .venv/bin/activate
-pip install -r requirements.txt
-pytest                      # optional
-uvicorn main:app --host 0.0.0.0 --port 8000
+cd server && pytest                                   # backend
+cd flutter_app && flutter test                        # app (chat, meeting, UI, Zoom flow)
+cd flutter_app/packages/zoom_meeting_bridge && flutter test   # native bridge (Dart side)
 ```
+CI runs all of them plus `flutter analyze` and a real `flutter build apk`.
 
-## Run the app
+## Path to production
 
-```bash
-cd app
-cp .env.example .env        # fill EXPO_PUBLIC_SENDBIRD_APP_ID, EXPO_PUBLIC_API_BASE_URL
-npm install
-npx expo run:android        # or: npx expo run:ios   (creates a dev build)
-```
-
-> **Expo Go is not enough for Zoom.** The Zoom SDK is a native module, so you need a development build
-> (`expo-dev-client` is already configured). The **Chat tab works in Expo Go** (`npx expo start`); the Meeting tab shows a hint there.
->
-> Physical device: set `EXPO_PUBLIC_API_BASE_URL=http://<your-LAN-IP>:8000`.
-
-## Try it
-
-1. Launch on two devices/emulators, log in with different user ids (`alice`, `bob`) → chat in the *POC Demo Room*.
-2. Start a Zoom meeting from the Zoom client, open the **Meeting** tab, enter the meeting number/passcode → *Join*.
-
-## Path to production (after the POC)
-
-- Sendbird: issue **session tokens** from the backend instead of user-id-only auth; consider `@sendbird/uikit-react-native` for ready-made UI.
-- Zoom: authenticate the `/zoom/signature` endpoint (it is open in the POC) and restrict CORS.
-- Add EAS Build, push notifications (Sendbird + FCM/APNs), and error monitoring.
+- Sendbird: issue **session tokens** from the backend instead of user-id-only login; consider Sendbird UIKit for Flutter.
+- Zoom: authenticate `/zoom/signature` (it is open in the POC), restrict CORS, serve over HTTPS, and complete
+  Zoom's app review so the app can join meetings hosted by other accounts.
+- Release signing, store listings, push notifications (Sendbird + FCM/APNs), crash reporting.

@@ -1,0 +1,26 @@
+name: zoom_meeting_bridge
+description: Thin Flutter bridge to the official Zoom Meeting SDK (Android + iOS). Join a meeting with a server-signed SDK JWT.
+version: 0.1.0
+publish_to: none
+
+environment:
+  sdk: ^3.13.5
+  flutter: '>=3.3.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+
+flutter:
+  plugin:
+    platforms:
+      android:
+        package: com.albalag.zoom_meeting_bridge
+        pluginClass: ZoomMeetingBridgePlugin
+      ios:
+        pluginClass: ZoomMeetingBridgePlugin

@@ -1,10 +1,12 @@
 node_modules/
 .expo/
 dist/
-ios/
-android/
+# React Native (legacy app/) generated native folders
+/app/ios/
+/app/android/
 .env
 *.log
 __pycache__/
 .venv/
 .pytest_cache/
+.DS_Store

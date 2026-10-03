@@ -17,7 +17,9 @@ TOKEN_TTL_SECONDS = 2 * 60 * 60
 
 
 class SignatureRequest(BaseModel):
-    meeting_number: str = Field(pattern=r"^\d{9,11}$")
+    # Optional: the native mobile SDKs authenticate with a general SDK token. The meeting-number
+    # claim ("mn") is only needed by the Web SDK or to pin a token to one meeting.
+    meeting_number: str | None = Field(default=None, pattern=r"^\d{9,11}$")
     role: int = Field(default=0, ge=0, le=1)  # 0 = attendee, 1 = host
 
 
@@ -42,10 +44,11 @@ def zoom_signature(req: SignatureRequest) -> SignatureResponse:
     payload = {
         "appKey": sdk_key,
         "sdkKey": sdk_key,
-        "mn": req.meeting_number,
         "role": req.role,
         "iat": iat,
         "exp": exp,
         "tokenExp": exp,
     }
+    if req.meeting_number:
+        payload["mn"] = req.meeting_number
     return SignatureResponse(signature=jwt.encode(payload, sdk_secret, algorithm="HS256"))
