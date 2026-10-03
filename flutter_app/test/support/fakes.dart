@@ -12,6 +12,7 @@ class FakeChatService implements ChatService {
   Object? connectError;
   Object? sendError;
   final sent = <String>[];
+  final replies = <ReplyPreview?>[];
   bool disconnected = false;
 
   @override
@@ -29,9 +30,10 @@ class FakeChatService implements ChatService {
   Future<List<ChatMessage>> joinRoomAndLoadHistory() async => history;
 
   @override
-  Future<ChatMessage> send(String text) async {
+  Future<ChatMessage> send(String text, {ReplyPreview? replyTo}) async {
     if (sendError != null) throw sendError!;
     sent.add(text);
+    replies.add(replyTo);
     return ChatMessage(
       id: 'srv-${sent.length}',
       text: text,
@@ -39,6 +41,7 @@ class FakeChatService implements ChatService {
       senderName: 'Me',
       createdAt: DateTime.now(),
       isMine: true,
+      replyTo: replyTo,
     );
   }
 

@@ -28,6 +28,20 @@ android {
         // flag during build.
         versionCode = flutter.versionCode
         versionName = flutter.versionName
+
+        // The Zoom SDK ships a very large native library for every CPU architecture. Real phones
+        // are arm64, so only package that one. (For an x86_64 emulator, add "x86_64" here.)
+        ndk {
+            abiFilters += listOf("arm64-v8a")
+        }
+    }
+
+    packaging {
+        jniLibs {
+            // Keep native libraries compressed inside the APK instead of stored raw. The APK is much
+            // smaller; the phone extracts them at install time (it needs the space once).
+            useLegacyPackaging = true
+        }
     }
 
     buildTypes {

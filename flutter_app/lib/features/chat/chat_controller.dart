@@ -15,6 +15,7 @@ class ChatState {
     this.messages = const [],
     this.connection = ChatConnection.connecting,
     this.error,
+    this.replyingTo,
   });
 
   final ChatPhase phase;
@@ -24,18 +25,24 @@ class ChatState {
   final ChatConnection connection;
   final String? error;
 
+  /// The message the user is currently composing a reply to.
+  final ChatMessage? replyingTo;
+
   ChatState copyWith({
     ChatPhase? phase,
     List<ChatMessage>? messages,
     ChatConnection? connection,
     String? error,
     bool clearError = false,
+    ChatMessage? replyingTo,
+    bool clearReply = false,
   }) =>
       ChatState(
         phase: phase ?? this.phase,
         messages: messages ?? this.messages,
         connection: connection ?? this.connection,
         error: clearError ? null : (error ?? this.error),
+        replyingTo: clearReply ? null : (replyingTo ?? this.replyingTo),
       );
 }
 
@@ -97,9 +104,16 @@ class ChatController extends Notifier<ChatState> {
     _connectionSub = null;
   }
 
+  void startReply(ChatMessage message) {
+    if (message.canReplyTo) state = state.copyWith(replyingTo: message);
+  }
+
+  void cancelReply() => state = state.copyWith(clearReply: true);
+
   Future<void> send(String rawText) async {
     final text = rawText.trim();
     if (text.isEmpty || state.phase != ChatPhase.ready) return;
+    final replyTo = state.replyingTo?.toReplyPreview();
     final pending = ChatMessage(
       id: 'local-${_localCounter++}',
       text: text,
@@ -108,8 +122,9 @@ class ChatController extends Notifier<ChatState> {
       createdAt: DateTime.now(),
       isMine: true,
       status: DeliveryStatus.sending,
+      replyTo: replyTo,
     );
-    state = state.copyWith(messages: [...state.messages, pending]);
+    state = state.copyWith(messages: [...state.messages, pending], clearReply: true);
     await _deliver(pending);
   }
 
@@ -121,8 +136,9 @@ class ChatController extends Notifier<ChatState> {
 
   Future<void> _deliver(ChatMessage pending) async {
     try {
-      final sent = await _service.send(pending.text);
-      _replace(pending.id, (_) => sent);
+      final sent = await _service.send(pending.text, replyTo: pending.replyTo);
+      // Keep the quote even if the server echo does not include the parent message.
+      _replace(pending.id, (_) => sent.replyTo == null ? sent.copyWith(replyTo: pending.replyTo) : sent);
     } catch (_) {
       _replace(pending.id, (m) => m.copyWith(status: DeliveryStatus.failed));
     }

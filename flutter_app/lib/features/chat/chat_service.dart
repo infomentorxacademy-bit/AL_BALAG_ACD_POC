@@ -12,8 +12,9 @@ abstract class ChatService {
   /// Joins (creating if needed) the shared demo room and returns recent history, oldest first.
   Future<List<ChatMessage>> joinRoomAndLoadHistory();
 
-  /// Sends [text]; completes with the delivered message or throws on failure.
-  Future<ChatMessage> send(String text);
+  /// Sends [text] (optionally as a reply to [replyTo]); completes with the delivered message
+  /// or throws on failure.
+  Future<ChatMessage> send(String text, {ReplyPreview? replyTo});
 
   Future<void> disconnect();
 }

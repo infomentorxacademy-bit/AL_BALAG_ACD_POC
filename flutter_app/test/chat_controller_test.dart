@@ -93,4 +93,53 @@ void main() {
     expect(state().phase, ChatPhase.idle);
     expect(service.disconnected, isTrue);
   });
+
+  group('replies', () {
+    test('replying sends the parent id and keeps the quote on the sent message', () async {
+      service.history = [msg('42', 'Where is the PDF?', sender: 'bob')];
+      await controller().start(userId: 'alice', nickname: 'Alice');
+
+      controller().startReply(state().messages.single);
+      expect(state().replyingTo?.id, '42');
+
+      await controller().send('Here it is');
+      final sent = state().messages.last;
+      expect(service.replies.single?.messageId, '42');
+      expect(sent.replyTo?.senderName, 'bob');
+      expect(sent.replyTo?.text, 'Where is the PDF?');
+      expect(state().replyingTo, isNull, reason: 'the reply bar closes after sending');
+    });
+
+    test('cancelReply clears the target and the next message is not a reply', () async {
+      service.history = [msg('42', 'hi', sender: 'bob')];
+      await controller().start(userId: 'alice', nickname: 'Alice');
+      controller().startReply(state().messages.single);
+      controller().cancelReply();
+      await controller().send('plain');
+      expect(service.replies.single, isNull);
+    });
+
+    test('messages that are not delivered yet cannot be replied to', () async {
+      await controller().start(userId: 'alice', nickname: 'Alice');
+      service.sendError = Exception('offline');
+      await controller().send('stuck'); // ends up failed with a local id
+      controller().startReply(state().messages.single);
+      expect(state().replyingTo, isNull);
+    });
+
+    test('retrying a failed reply keeps it a reply', () async {
+      service.history = [msg('7', 'original', sender: 'bob')];
+      await controller().start(userId: 'alice', nickname: 'Alice');
+      controller().startReply(state().messages.single);
+      service.sendError = Exception('offline');
+      await controller().send('my answer');
+      final failed = state().messages.last;
+      expect(failed.status, DeliveryStatus.failed);
+      expect(failed.replyTo?.messageId, '7');
+
+      service.sendError = null;
+      await controller().retry(failed);
+      expect(service.replies.single?.messageId, '7');
+    });
+  });
 }

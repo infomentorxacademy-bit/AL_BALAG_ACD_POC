@@ -56,7 +56,10 @@ class SendbirdChatService implements ChatService {
     final params = MessageListParams()
       ..previousResultSize = 50
       ..nextResultSize = 0
-      ..reverse = false;
+      ..reverse = false
+      // Include the quoted parent of replies so they render with their context.
+      ..includeParentMessageInfo = true
+      ..replyType = ReplyType.all;
     final history = await channel.getMessagesByTimestamp(
       DateTime.now().millisecondsSinceEpoch,
       params,
@@ -80,14 +83,22 @@ class SendbirdChatService implements ChatService {
   }
 
   @override
-  Future<ChatMessage> send(String text) {
+  Future<ChatMessage> send(String text, {ReplyPreview? replyTo}) {
     final channel = _channel;
     if (channel == null) {
       return Future.error(StateError('Not in a channel yet'));
     }
     final completer = Completer<ChatMessage>();
+    final params = UserMessageCreateParams(message: text);
+    final parentId = replyTo == null ? null : int.tryParse(replyTo.messageId);
+    if (parentId != null) {
+      params
+        ..parentMessageId = parentId
+        // Show the reply in the main conversation, not only inside a thread.
+        ..replyToChannel = true;
+    }
     channel.sendUserMessage(
-      UserMessageCreateParams(message: text),
+      params,
       handler: (message, error) {
         if (error != null) {
           completer.completeError(error);
@@ -117,6 +128,18 @@ class SendbirdChatService implements ChatService {
       senderName: (sender?.nickname.isNotEmpty ?? false) ? sender!.nickname : senderId,
       createdAt: DateTime.fromMillisecondsSinceEpoch(m.createdAt),
       isMine: senderId.isNotEmpty && senderId == myId,
+      replyTo: _mapParent(m.parentMessage, myId),
+    );
+  }
+
+  ReplyPreview? _mapParent(BaseMessage? parent, String? myId) {
+    if (parent == null) return null;
+    final senderId = parent.sender?.userId ?? '';
+    final nickname = parent.sender?.nickname ?? '';
+    return ReplyPreview(
+      messageId: parent.messageId.toString(),
+      senderName: senderId == myId ? 'You' : (nickname.isNotEmpty ? nickname : senderId),
+      text: parent.message,
     );
   }
 }

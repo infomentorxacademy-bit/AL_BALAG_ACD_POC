@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 
@@ -16,10 +17,12 @@ class ChatScreen extends ConsumerStatefulWidget {
 
 class _ChatScreenState extends ConsumerState<ChatScreen> {
   final _input = TextEditingController();
+  final _focus = FocusNode();
 
   @override
   void dispose() {
     _input.dispose();
+    _focus.dispose();
     super.dispose();
   }
 
@@ -35,12 +38,29 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     final chat = ref.watch(chatControllerProvider);
     final theme = Theme.of(context);
 
+    // Jump to the text field as soon as the user picks "Reply".
+    ref.listen(chatControllerProvider.select((s) => s.replyingTo), (previous, next) {
+      if (next != null) _focus.requestFocus();
+    });
+
     return Column(
       children: [
         _RoomHeader(connection: chat.connection, phase: chat.phase),
         Expanded(child: _body(chat, theme)),
-        if (chat.phase == ChatPhase.ready)
-          _Composer(controller: _input, onSend: _send, enabled: chat.connection != ChatConnection.offline),
+        if (chat.phase == ChatPhase.ready) ...[
+          if (chat.replyingTo != null)
+            _ReplyBar(
+              message: chat.replyingTo!,
+              onClose: ref.read(chatControllerProvider.notifier).cancelReply,
+            ),
+          _Composer(
+            controller: _input,
+            focusNode: _focus,
+            onSend: _send,
+            enabled: chat.connection != ChatConnection.offline,
+            replying: chat.replyingTo != null,
+          ),
+        ],
       ],
     );
   }
@@ -180,14 +200,49 @@ class _DateChip extends StatelessWidget {
   }
 }
 
-class MessageBubble extends StatelessWidget {
+class MessageBubble extends ConsumerWidget {
   const MessageBubble({super.key, required this.message, this.showSender = true});
 
   final ChatMessage message;
   final bool showSender;
 
+  void _showActions(BuildContext context, WidgetRef ref) {
+    showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      builder: (sheet) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (message.canReplyTo)
+              ListTile(
+                leading: const Icon(Icons.reply),
+                title: const Text('Reply'),
+                onTap: () {
+                  Navigator.pop(sheet);
+                  ref.read(chatControllerProvider.notifier).startReply(message);
+                },
+              ),
+            ListTile(
+              leading: const Icon(Icons.copy),
+              title: const Text('Copy'),
+              onTap: () async {
+                Navigator.pop(sheet);
+                await Clipboard.setData(ClipboardData(text: message.text));
+                if (context.mounted) {
+                  ScaffoldMessenger.of(context)
+                      .showSnackBar(const SnackBar(content: Text('Copied')));
+                }
+              },
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
     final mine = message.isMine;
@@ -211,7 +266,10 @@ class MessageBubble extends StatelessWidget {
                     style: theme.textTheme.labelSmall?.copyWith(color: scheme.primary),
                   ),
                 ),
-              DecoratedBox(
+              GestureDetector(
+                onLongPress: () => _showActions(context, ref),
+                behavior: HitTestBehavior.opaque,
+                child: DecoratedBox(
                 decoration: BoxDecoration(
                   color: bg,
                   borderRadius: BorderRadius.only(
@@ -227,7 +285,8 @@ class MessageBubble extends StatelessWidget {
                     crossAxisAlignment: CrossAxisAlignment.end,
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      SelectableText(message.text, style: TextStyle(color: fg, fontSize: 15.5)),
+                      if (message.replyTo != null) _QuoteBlock(reply: message.replyTo!, mine: mine, color: fg),
+                      Text(message.text, style: TextStyle(color: fg, fontSize: 15.5)),
                       const SizedBox(height: 3),
                       Row(
                         mainAxisSize: MainAxisSize.min,
@@ -244,6 +303,7 @@ class MessageBubble extends StatelessWidget {
                       ),
                     ],
                   ),
+                ),
                 ),
               ),
               if (message.status == DeliveryStatus.failed)
@@ -284,11 +344,19 @@ class _StatusIcon extends StatelessWidget {
 }
 
 class _Composer extends StatelessWidget {
-  const _Composer({required this.controller, required this.onSend, required this.enabled});
+  const _Composer({
+    required this.controller,
+    required this.focusNode,
+    required this.onSend,
+    required this.enabled,
+    required this.replying,
+  });
 
   final TextEditingController controller;
+  final FocusNode focusNode;
   final VoidCallback onSend;
   final bool enabled;
+  final bool replying;
 
   @override
   Widget build(BuildContext context) {
@@ -303,6 +371,7 @@ class _Composer extends StatelessWidget {
             Expanded(
               child: TextField(
                 controller: controller,
+                focusNode: focusNode,
                 minLines: 1,
                 maxLines: 5,
                 textCapitalization: TextCapitalization.sentences,
@@ -361,6 +430,85 @@ class _ErrorView extends StatelessWidget {
               onPressed: onRetry,
               icon: const Icon(Icons.refresh),
               label: const Text('Try again'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// The quoted original inside a reply bubble.
+class _QuoteBlock extends StatelessWidget {
+  const _QuoteBlock({required this.reply, required this.mine, required this.color});
+
+  final ReplyPreview reply;
+  final bool mine;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 6),
+      padding: const EdgeInsets.fromLTRB(8, 4, 8, 4),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(8),
+        border: Border(left: BorderSide(color: color.withValues(alpha: 0.8), width: 3)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            reply.senderName,
+            style: TextStyle(color: color, fontSize: 11.5, fontWeight: FontWeight.w700),
+          ),
+          Text(
+            reply.text,
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(color: color.withValues(alpha: 0.85), fontSize: 13),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Shown above the composer while a reply is being written.
+class _ReplyBar extends StatelessWidget {
+  const _ReplyBar({required this.message, required this.onClose});
+
+  final ChatMessage message;
+  final VoidCallback onClose;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final name = message.isMine ? 'yourself' : message.senderName;
+    return Material(
+      color: scheme.surfaceContainerLow,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(16, 8, 4, 8),
+        child: Row(
+          children: [
+            Container(width: 3, height: 36, color: scheme.primary),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('Replying to $name',
+                      style: TextStyle(color: scheme.primary, fontWeight: FontWeight.w600, fontSize: 12.5)),
+                  Text(message.text, maxLines: 1, overflow: TextOverflow.ellipsis),
+                ],
+              ),
+            ),
+            IconButton(
+              tooltip: 'Cancel reply',
+              icon: const Icon(Icons.close),
+              onPressed: onClose,
             ),
           ],
         ),

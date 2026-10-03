@@ -145,4 +145,47 @@ void main() {
     expect(find.text('AL Balag POC'), findsOneWidget);
     expect(chat.disconnected, isTrue);
   });
+
+  testWidgets('long-press a message, reply to it, and the reply shows the quote', (tester) async {
+    final (app, chat, _) = await _app(prefs: {'user_id': 'alice'});
+    chat.history = [msg('5', 'Who has the schedule?', sender: 'bob')];
+    await tester.pumpWidget(app);
+    await tester.pumpAndSettle();
+
+    await tester.longPress(find.text('Who has the schedule?'));
+    await tester.pumpAndSettle();
+    expect(find.text('Copy'), findsOneWidget);
+    await tester.tap(find.text('Reply'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Replying to bob'), findsOneWidget);
+
+    await tester.enterText(find.widgetWithText(TextField, '').last, 'I do');
+    await tester.pump();
+    await tester.tap(find.byTooltip('Send'));
+    await tester.pumpAndSettle();
+
+    expect(chat.replies.single?.messageId, '5');
+    expect(find.text('Replying to bob'), findsNothing); // bar closed
+    // The original appears twice now: once as the message, once quoted inside the reply.
+    expect(find.text('Who has the schedule?'), findsNWidgets(2));
+    expect(find.text('I do'), findsOneWidget);
+  });
+
+  testWidgets('the reply bar can be cancelled', (tester) async {
+    final (app, chat, _) = await _app(prefs: {'user_id': 'alice'});
+    chat.history = [msg('5', 'hello', sender: 'bob')];
+    await tester.pumpWidget(app);
+    await tester.pumpAndSettle();
+
+    await tester.longPress(find.text('hello'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Reply'));
+    await tester.pumpAndSettle();
+    expect(find.text('Replying to bob'), findsOneWidget);
+
+    await tester.tap(find.byTooltip('Cancel reply'));
+    await tester.pumpAndSettle();
+    expect(find.text('Replying to bob'), findsNothing);
+  });
 }
