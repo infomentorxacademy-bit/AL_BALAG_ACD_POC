@@ -49,6 +49,8 @@ android {
             // TODO: Add your own signing config for the release build.
             // Signing with the debug keys for now, so `flutter run --release` works.
             signingConfig = signingConfigs.getByName("debug")
+            // Flutter enables R8 for release; these rules keep Zoom working and ignore optional classes.
+            proguardFiles("proguard-rules.pro")
         }
     }
 }

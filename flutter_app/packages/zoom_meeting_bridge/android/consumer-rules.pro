@@ -8,3 +8,12 @@
 -keep class androidx.security.crypto.** { *; }
 -dontwarn us.zoom.**
 -dontwarn com.zipow.**
+
+# Optional / desktop-only classes referenced by Zoom's dependencies. They are never reached on Android,
+# so R8 must not fail the release build because they are missing.
+-dontwarn com.google.api.client.http.**
+-dontwarn com.google.zxing.**
+-dontwarn org.joda.time.**
+-dontwarn java.awt.**
+-dontwarn javax.swing.**
+-dontwarn kotlinx.coroutines.swing.**
