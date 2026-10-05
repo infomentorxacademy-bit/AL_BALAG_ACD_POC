@@ -73,6 +73,7 @@ Every push builds the APKs in GitHub Actions and publishes them to one rolling r
 cd server && pytest                                   # backend
 cd flutter_app && flutter test                        # app (chat list, conversation, meeting, UI, Zoom flow)
 cd flutter_app/packages/zoom_meeting_bridge && flutter test   # native bridge (Dart side)
+cd app && npm test && npm run test:ui                # React Native: logic (Node) and screens (test renderer)
 ```
 CI runs all of them plus `flutter analyze`, real `flutter build apk` (debug + release) and an Expo/React Native release build.
 

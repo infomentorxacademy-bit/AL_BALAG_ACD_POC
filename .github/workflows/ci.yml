@@ -127,6 +127,7 @@ jobs:
         run: |
           npm run typecheck
           npm test
+          npm run test:ui
       - name: Generate the Android project
         run: npx expo prebuild --platform android --no-install
       - name: Build release APK
