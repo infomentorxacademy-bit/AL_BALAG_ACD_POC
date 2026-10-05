@@ -26,6 +26,8 @@
 	<string>$(FLUTTER_BUILD_NUMBER)</string>
 	<key>NSCameraUsageDescription</key>
 	<string>The camera is used for video in Zoom meetings.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>Choose photos to share in chat.</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>The microphone is used for audio in Zoom meetings.</string>
 	<key>NSLocalNetworkUsageDescription</key>

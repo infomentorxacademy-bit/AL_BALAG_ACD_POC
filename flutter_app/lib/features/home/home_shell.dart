@@ -2,8 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../auth/session_controller.dart';
-import '../chat/chat_controller.dart';
-import '../chat/chat_screen.dart';
+import '../chat/channel_list_controller.dart';
+import '../chat/channel_list_screen.dart';
 import '../meeting/meeting_screen.dart';
 import '../settings/server_settings_dialog.dart';
 
@@ -25,21 +25,21 @@ class _HomeShellState extends ConsumerState<HomeShell> {
       final user = ref.read(sessionProvider);
       if (user != null) {
         ref
-            .read(chatControllerProvider.notifier)
+            .read(channelListControllerProvider.notifier)
             .start(userId: user.userId, nickname: user.displayName);
       }
     });
   }
 
   Future<void> _signOut() async {
-    await ref.read(chatControllerProvider.notifier).stop();
+    await ref.read(channelListControllerProvider.notifier).stop();
     await ref.read(sessionProvider.notifier).signOut();
   }
 
   @override
   Widget build(BuildContext context) {
     final user = ref.watch(sessionProvider);
-    final titles = ['Chat', 'Meeting'];
+    final titles = ['Chats', 'Meeting'];
 
     return Scaffold(
       appBar: AppBar(
@@ -73,8 +73,15 @@ class _HomeShellState extends ConsumerState<HomeShell> {
       // IndexedStack keeps the chat list and its scroll position alive while on the Meeting tab.
       body: IndexedStack(
         index: _index,
-        children: const [ChatScreen(), MeetingScreen()],
+        children: const [ChannelListScreen(), MeetingScreen()],
       ),
+      floatingActionButton: _index == 0
+          ? FloatingActionButton.extended(
+              onPressed: () => startNewChat(context, ref),
+              icon: const Icon(Icons.edit_outlined),
+              label: const Text('New chat'),
+            )
+          : null,
       bottomNavigationBar: NavigationBar(
         selectedIndex: _index,
         onDestinationSelected: (i) => setState(() => _index = i),
@@ -82,7 +89,7 @@ class _HomeShellState extends ConsumerState<HomeShell> {
           NavigationDestination(
             icon: Icon(Icons.chat_bubble_outline),
             selectedIcon: Icon(Icons.chat_bubble),
-            label: 'Chat',
+            label: 'Chats',
           ),
           NavigationDestination(
             icon: Icon(Icons.videocam_outlined),

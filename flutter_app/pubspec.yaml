@@ -41,6 +41,7 @@ dependencies:
   intl: ^0.20.3
   zoom_meeting_bridge:
     path: packages/zoom_meeting_bridge
+  image_picker: ^1.2.3
 
 dev_dependencies:
   flutter_test:
