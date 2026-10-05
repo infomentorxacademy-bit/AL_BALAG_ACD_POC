@@ -126,7 +126,8 @@ jobs:
       - name: Generate the Android project
         run: npx expo prebuild --platform android --no-install
       - name: Build release APK
-        run: cd android && ./gradlew assembleRelease --no-daemon --stacktrace
+        # Zoom's resources are big: the default 2 GB Gradle heap ran out of memory while merging them.
+        run: cd android && ./gradlew assembleRelease --no-daemon --stacktrace -Dorg.gradle.jvmargs="-Xmx5g -XX:MaxMetaspaceSize=1g" -Pkotlin.daemon.jvm.options=-Xmx2g
       - uses: actions/upload-artifact@v4
         with:
           name: al-balag-poc-rn-release-apk
