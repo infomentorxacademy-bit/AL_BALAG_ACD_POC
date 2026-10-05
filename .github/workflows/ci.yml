@@ -3,14 +3,17 @@ name: CI
 on:
   push:
     branches: [main, 'claude/**']
-    paths: ['flutter_app/**', 'server/**', '.github/workflows/ci.yml']
+    paths: ['flutter_app/**', 'app/**', 'server/**', '.github/workflows/ci.yml']
   pull_request:
-    paths: ['flutter_app/**', 'server/**', '.github/workflows/ci.yml']
+    paths: ['flutter_app/**', 'app/**', 'server/**', '.github/workflows/ci.yml']
   workflow_dispatch:
 
 concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
+
+permissions:
+  contents: read
 
 jobs:
   server:
@@ -94,3 +97,67 @@ jobs:
           path: flutter_app/build/app/outputs/flutter-apk/app-release.apk
           if-no-files-found: error
           retention-days: 14
+
+  # React Native (Expo) app. A *release* build bundles the JS, so the APK runs on its own (a debug build
+  # would look for a Metro dev server). `expo prebuild` generates the android/ project (not committed).
+  rn-android:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: app
+    env:
+      CI: '1'
+      # Repo variables (Settings > Secrets and variables > Actions > Variables) override these defaults.
+      EXPO_PUBLIC_SENDBIRD_APP_ID: ${{ vars.SENDBIRD_APP_ID || '6DAEC6E0-174D-497F-8B59-503A0F27B21E' }}
+      EXPO_PUBLIC_API_BASE_URL: ${{ vars.API_BASE_URL || 'http://10.0.2.2:8000' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: app/package-lock.json
+      - name: Install dependencies (also applies the Zoom patch)
+        run: npm ci
+      - name: Generate the Android project
+        run: npx expo prebuild --platform android --no-install
+      - name: Build release APK
+        run: cd android && ./gradlew assembleRelease --no-daemon --stacktrace
+      - uses: actions/upload-artifact@v4
+        with:
+          name: al-balag-poc-rn-release-apk
+          path: app/android/app/build/outputs/apk/release/app-release.apk
+          if-no-files-found: error
+          retention-days: 14
+
+  # Publishes the APKs as a GitHub Release so they can be downloaded straight from a phone browser
+  # (no zip, no login). One rolling release called "latest" is replaced on every push.
+  publish:
+    needs: [flutter, android-release, rn-android]
+    if: ${{ !cancelled() && github.event_name == 'push' && needs.flutter.result == 'success' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: apks
+          pattern: al-balag-poc-*
+      - name: Publish release "latest"
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -e
+          mkdir out
+          [ -f apks/al-balag-poc-debug-apk/app-debug.apk ] && cp apks/al-balag-poc-debug-apk/app-debug.apk out/AL-Balag-Flutter-debug.apk
+          [ -f apks/al-balag-poc-release-apk/app-release.apk ] && cp apks/al-balag-poc-release-apk/app-release.apk out/AL-Balag-Flutter-release.apk
+          [ -f apks/al-balag-poc-rn-release-apk/app-release.apk ] && cp apks/al-balag-poc-rn-release-apk/app-release.apk out/AL-Balag-ReactNative-release.apk
+          ls -lh out
+          gh release delete latest --cleanup-tag --yes --repo "$GITHUB_REPOSITORY" || true
+          gh release create latest out/*.apk --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --prerelease \
+            --title "Latest build" \
+            --notes "Built from commit $GITHUB_SHA. Flutter = main app (use the debug APK for testing). ReactNative = comparison build."
