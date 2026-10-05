@@ -123,6 +123,10 @@ jobs:
           cache-dependency-path: app/package-lock.json
       - name: Install dependencies (also applies the Zoom patch)
         run: npm ci
+      - name: Type-check and unit-test the app code
+        run: |
+          npm run typecheck
+          npm test
       - name: Generate the Android project
         run: npx expo prebuild --platform android --no-install
       - name: Build release APK

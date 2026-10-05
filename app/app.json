@@ -48,7 +48,13 @@
           }
         }
       ],
-      "./plugins/withZoomAndroidFixes"
+      "./plugins/withZoomAndroidFixes",
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Choose photos to share in chat."
+        }
+      ]
     ]
   }
 }

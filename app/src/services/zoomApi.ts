@@ -1,4 +1,5 @@
 import { config } from '../config';
+import { normalizeBaseUrl } from '../logic';
 
 /** Asks the backend to sign a Meeting SDK JWT (the SDK secret must never live in the app). */
 export async function fetchZoomSignature(
@@ -14,11 +15,4 @@ export async function fetchZoomSignature(
   if (!res.ok) throw new Error(`Signature request failed (${res.status}): ${await res.text()}`);
   const data = (await res.json()) as { signature: string };
   return data.signature;
-}
-
-/** "192.168.1.20:8000/" -> "http://192.168.1.20:8000" */
-export function normalizeBaseUrl(input: string): string {
-  let url = input.trim();
-  if (!/^https?:\/\//i.test(url)) url = `http://${url}`;
-  return url.replace(/\/+$/, '');
 }
