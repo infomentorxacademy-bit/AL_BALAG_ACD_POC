@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Alert, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import Constants, { ExecutionEnvironment } from 'expo-constants';
 
+import { config } from '../config';
 import { fetchZoomSignature } from '../services/zoomApi';
 
 type Session = { jwtToken: string; meetingNumber: string; password: string };
@@ -9,6 +10,8 @@ type Session = { jwtToken: string; meetingNumber: string; password: string };
 export default function MeetingScreen({ userId }: { userId: string }) {
   const [meetingNumber, setMeetingNumber] = useState('');
   const [password, setPassword] = useState('');
+  // Editable so a phone can point at the PC running the backend without rebuilding the app.
+  const [serverUrl, setServerUrl] = useState(config.apiBaseUrl);
   const [session, setSession] = useState<Session | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -22,7 +25,7 @@ export default function MeetingScreen({ userId }: { userId: string }) {
     if (!mn) return Alert.alert('Enter a meeting number');
     setBusy(true);
     try {
-      const jwtToken = await fetchZoomSignature(mn);
+      const jwtToken = await fetchZoomSignature(mn, 0, serverUrl);
       setSession({ jwtToken, meetingNumber: mn, password });
     } catch (e) {
       Alert.alert('Could not get Zoom token', e instanceof Error ? e.message : String(e));
@@ -46,6 +49,16 @@ export default function MeetingScreen({ userId }: { userId: string }) {
 
   return (
     <View style={styles.container}>
+      <Text style={styles.label}>Backend server</Text>
+      <TextInput
+        style={styles.input}
+        value={serverUrl}
+        onChangeText={setServerUrl}
+        autoCapitalize="none"
+        autoCorrect={false}
+        keyboardType="url"
+        placeholder="http://192.168.1.20:8000"
+      />
       <Text style={styles.label}>Meeting number</Text>
       <TextInput style={styles.input} value={meetingNumber} onChangeText={setMeetingNumber} keyboardType="number-pad" placeholder="123 4567 8901" />
       <Text style={styles.label}>Passcode (if required)</Text>

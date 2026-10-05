@@ -6,7 +6,7 @@ A proof of concept for **in-app chat** (Sendbird) and **in-app Zoom meetings** (
 |---|---|
 | [`flutter_app/`](flutter_app) | **Main app: Flutter** (Android + iOS). Start here. |
 | [`server/`](server) | FastAPI backend that signs Zoom SDK tokens (the Zoom secret never ships in the app). |
-| [`app/`](app) | Earlier React Native (Expo) version, kept for reference. Superseded by `flutter_app/`. |
+| [`app/`](app) | React Native (Expo) version for comparison. Built in CI too, but `flutter_app/` is the main app. |
 
 ```
 ┌──────────────┐  chat   ┌───────────┐
@@ -37,8 +37,29 @@ A proof of concept for **in-app chat** (Sendbird) and **in-app Zoom meetings** (
    flutter run --dart-define=API_BASE_URL=http://<your-computer-LAN-IP>:8000
    ```
 
-No local Android toolchain? Every push builds an installable APK in GitHub Actions
-(**Actions > CI > latest run > Artifacts > `al-balag-poc-debug-apk`**).
+## Install on a phone (no PC toolchain needed)
+
+Every push builds the APKs in GitHub Actions and publishes them to one rolling release. Open this on the phone:
+
+**https://github.com/infomentorxacademy-bit/AL_BALAG_ACD_POC/releases/tag/latest**
+
+| File | What it is |
+|---|---|
+| `AL-Balag-Flutter-debug.apk` | Main app. Use this one for testing (plain `http://` to a PC backend works). |
+| `AL-Balag-Flutter-release.apk` | Same app, release build. |
+| `AL-Balag-ReactNative-release.apk` | React Native build for comparison. |
+
+(The same files are also under **Actions > CI > latest run > Artifacts**, as zips.)
+
+## What the Flutter app does
+
+- **Chats tab**: list of conversations with unread badges and last-message preview, pull to refresh, new direct
+  chat or group by user id, leave a chat. A shared public room (**POC Demo Room**) is joined automatically.
+- **Conversation**: send text and photos, reply with a quote, edit and delete your own messages, emoji reactions,
+  typing indicator, read receipts (one tick sent, two blue ticks seen), date separators, earlier-message paging,
+  members list, retry for failed sends.
+- **Meeting tab**: join a Zoom meeting inside the app (native Zoom Meeting SDK) with friendly error messages.
+- **Server setting** (top bar): point the app at your backend at run time, no rebuild.
 
 ## Credentials
 
@@ -50,10 +71,10 @@ No local Android toolchain? Every push builds an installable APK in GitHub Actio
 
 ```bash
 cd server && pytest                                   # backend
-cd flutter_app && flutter test                        # app (chat, meeting, UI, Zoom flow)
+cd flutter_app && flutter test                        # app (chat list, conversation, meeting, UI, Zoom flow)
 cd flutter_app/packages/zoom_meeting_bridge && flutter test   # native bridge (Dart side)
 ```
-CI runs all of them plus `flutter analyze` and a real `flutter build apk`.
+CI runs all of them plus `flutter analyze`, real `flutter build apk` (debug + release) and an Expo/React Native release build.
 
 ## Path to production
 
