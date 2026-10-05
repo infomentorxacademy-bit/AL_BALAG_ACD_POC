@@ -1,12 +1,13 @@
 import { useCallback, useEffect, useState } from 'react';
-import { ActivityIndicator, Alert, BackHandler, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, Alert, AppState, BackHandler, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 
 import { useStore } from './src/chat/store';
 import type { ChatChannel } from './src/chat/types';
+import MeetingBar from './src/components/MeetingBar';
 import NewChatModal from './src/components/NewChatModal';
-import { channelList } from './src/controllers';
+import { activeMeeting, channelList } from './src/controllers';
 import ChannelListScreen from './src/screens/ChannelListScreen';
 import ConversationScreen from './src/screens/ConversationScreen';
 import LoginScreen from './src/screens/LoginScreen';
@@ -24,6 +25,7 @@ export default function App() {
   const [open, setOpen] = useState<ChatChannel | null>(null);
   const [newChat, setNewChat] = useState(false);
   const list = useStore(channelList);
+  const meeting = useStore(activeMeeting);
 
   const startChat = useCallback((s: Session) => {
     channelList.start(s.userId, s.displayName);
@@ -35,6 +37,12 @@ export default function App() {
       if (s) startChat(s);
     });
   }, [startChat]);
+
+  // Coming back to the app (for example from the full-screen meeting): re-check whether the meeting still runs.
+  useEffect(() => {
+    const sub = AppState.addEventListener('change', (st) => st === 'active' && activeMeeting.syncWithZoom());
+    return () => sub.remove();
+  }, []);
 
   // Android back button closes the open conversation instead of leaving the app.
   useEffect(() => {
@@ -63,6 +71,7 @@ export default function App() {
         style: 'destructive',
         onPress: async () => {
           setOpen(null);
+          activeMeeting.end();
           await channelList.stop();
           await clearSession();
           setSession(null);
@@ -121,9 +130,29 @@ export default function App() {
     <SafeAreaProvider>
       <SafeAreaView style={styles.root}>
         <StatusBar style="dark" />
+        {session ? <MeetingBar /> : null}
         {body}
+        {/* The Zoom host lives here, not in the Meeting tab, so the meeting survives tab changes. */}
+        {meeting.session ? <ZoomHost session={meeting.session} /> : null}
       </SafeAreaView>
     </SafeAreaProvider>
+  );
+}
+
+/** Invisible host that initializes Zoom and joins. Loaded lazily: the native module is missing in Expo Go. */
+function ZoomHost({ session }: { session: NonNullable<typeof activeMeeting.state.session> }) {
+  const ZoomRoom = require('./src/screens/ZoomRoom').default;
+  return (
+    <View style={styles.hidden}>
+      <ZoomRoom
+        key={`${session.meetingNumber}:${session.jwtToken}`}
+        jwtToken={session.jwtToken}
+        userName={session.userName}
+        meetingNumber={session.meetingNumber}
+        password={session.password}
+        onJoinResult={(r: string) => activeMeeting.onJoinResult(r)}
+      />
+    </View>
   );
 }
 

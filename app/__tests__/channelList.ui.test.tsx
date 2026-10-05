@@ -2,7 +2,7 @@ import { render, screen, userEvent } from '@testing-library/react-native';
 
 jest.mock('../src/controllers', () => {
   const t = require('./testApp');
-  return { channelList: t.channelList, conversation: t.conversation, chatService: t.fake };
+  return { channelList: t.channelList, conversation: t.conversation, activeMeeting: t.activeMeeting, chatService: t.fake };
 });
 
 import ChannelListScreen from '../src/screens/ChannelListScreen';

@@ -2,8 +2,12 @@ package com.albalag.zoom_meeting_bridge;
 
 import android.app.Activity;
 import android.content.Context;
+import android.content.Intent;
+import android.net.Uri;
+import android.os.Build;
 import android.os.Handler;
 import android.os.Looper;
+import android.provider.Settings;
 import android.util.Log;
 
 import androidx.annotation.NonNull;
@@ -23,6 +27,7 @@ import io.flutter.plugin.common.MethodChannel;
 import io.flutter.plugin.common.MethodChannel.MethodCallHandler;
 import io.flutter.plugin.common.MethodChannel.Result;
 
+import us.zoom.sdk.CustomizedMiniMeetingViewSize;
 import us.zoom.sdk.JoinMeetingOptions;
 import us.zoom.sdk.JoinMeetingParam4WithoutLogin;
 import us.zoom.sdk.MeetingError;
@@ -30,10 +35,12 @@ import us.zoom.sdk.MeetingParameter;
 import us.zoom.sdk.MeetingService;
 import us.zoom.sdk.MeetingServiceListener;
 import us.zoom.sdk.MeetingStatus;
+import us.zoom.sdk.SimpleZoomUIDelegate;
 import us.zoom.sdk.ZoomError;
 import us.zoom.sdk.ZoomSDK;
 import us.zoom.sdk.ZoomSDKInitParams;
 import us.zoom.sdk.ZoomSDKInitializeListener;
+import us.zoom.sdk.ZoomUIService;
 
 /**
  * Bridges the official Zoom Meeting SDK to Flutter.
@@ -74,6 +81,16 @@ public class ZoomMeetingBridgePlugin
     @Override
     public void onMeetingParameterNotification(MeetingParameter meetingParameter) {
       // Not needed for this bridge.
+    }
+  };
+
+  // Tells Dart when the user minimizes the meeting (Zoom then shows its small floating window).
+  private final SimpleZoomUIDelegate uiDelegate = new SimpleZoomUIDelegate() {
+    @Override
+    public void afterMeetingMinimized(Activity minimizedActivity) {
+      Map<String, Object> event = new HashMap<>();
+      event.put("type", "minimized");
+      emit(event);
     }
   };
 
@@ -157,6 +174,18 @@ public class ZoomMeetingBridgePlugin
       case "joinMeeting":
         joinMeeting(call, result);
         break;
+      case "canDrawOverlays":
+        result.success(Build.VERSION.SDK_INT < Build.VERSION_CODES.M || Settings.canDrawOverlays(uiContext()));
+        break;
+      case "requestOverlayPermission":
+        requestOverlayPermission(result);
+        break;
+      case "returnToMeeting":
+        returnToMeeting(result);
+        break;
+      case "meetingState":
+        meetingState(result);
+        break;
       case "uninitialize":
         mainHandler.post(() -> {
           ZoomSDK.getInstance().uninitialize();
@@ -197,6 +226,48 @@ public class ZoomMeetingBridgePlugin
         Log.e(TAG, "initialize failed", e);
         result.error("init_failed", e.getMessage(), null);
       }
+    });
+  }
+
+  /** Opens the system screen where the user can allow "Display over other apps" for this app. */
+  private void requestOverlayPermission(final Result result) {
+    try {
+      Intent intent = new Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+          Uri.parse("package:" + uiContext().getPackageName()));
+      if (activity == null) {
+        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+      }
+      uiContext().startActivity(intent);
+      result.success(true);
+    } catch (Exception e) {
+      Log.e(TAG, "requestOverlayPermission failed", e);
+      result.error("overlay_failed", e.getMessage(), null);
+    }
+  }
+
+  /** Brings the running meeting back to full screen (from the floating window or from the app). */
+  private void returnToMeeting(final Result result) {
+    mainHandler.post(() -> {
+      try {
+        MeetingService meetingService = ZoomSDK.getInstance().getMeetingService();
+        if (meetingService == null) {
+          result.error("not_ready", "Zoom SDK is not initialized.", null);
+          return;
+        }
+        meetingService.returnToMeeting(uiContext());
+        result.success(true);
+      } catch (Exception e) {
+        Log.e(TAG, "returnToMeeting failed", e);
+        result.error("return_failed", e.getMessage(), null);
+      }
+    });
+  }
+
+  /** The current meeting state, e.g. "InMeeting" or "Idle". */
+  private void meetingState(final Result result) {
+    mainHandler.post(() -> {
+      MeetingService meetingService = ZoomSDK.getInstance().getMeetingService();
+      result.success(meetingService == null ? "Idle" : statusName(meetingService.getMeetingStatus()));
     });
   }
 
@@ -243,6 +314,7 @@ public class ZoomMeetingBridgePlugin
       if (meetingService != null) {
         meetingService.addListener(meetingListener);
       }
+      configureMiniWindow();
     }
     Map<String, Object> event = new HashMap<>();
     event.put("type", "auth");
@@ -250,6 +322,20 @@ public class ZoomMeetingBridgePlugin
     event.put("name", constantName(ZoomError.class, errorCode, "ZOOM_ERROR_"));
     event.put("internalCode", internalErrorCode);
     emit(event);
+  }
+
+  /** Lets the user minimize the meeting to a small floating window and use the app meanwhile. */
+  private void configureMiniWindow() {
+    ZoomUIService ui = ZoomSDK.getInstance().getZoomUIService();
+    if (ui == null) {
+      return;
+    }
+    ui.enableMinimizeMeeting(true);
+    float density = uiContext().getResources().getDisplayMetrics().density;
+    // Constructor order is (topMargin, rightMargin, width, height), in pixels.
+    ui.setMiniMeetingViewSize(new CustomizedMiniMeetingViewSize(
+        (int) (96 * density), (int) (12 * density), (int) (112 * density), (int) (152 * density)));
+    ui.setZoomUIDelegate(uiDelegate);
   }
 
   private void handleMeetingStatus(MeetingStatus status, int errorCode, int internalErrorCode) {

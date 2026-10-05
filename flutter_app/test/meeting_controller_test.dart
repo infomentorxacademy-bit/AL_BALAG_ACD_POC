@@ -122,4 +122,98 @@ void main() {
     await setUpContainer({'recent_meetings': ['123456789']});
     expect(state().recent, ['123456789']);
   });
+
+  group('keeping the meeting reachable', () {
+    Future<void> joinAndGetIn() async {
+      await setUpContainer();
+      await controller().join(meetingNumber: '81234567890', displayName: 'A');
+      service.updates.add(const MeetingStatusUpdate(status: 'InMeeting'));
+      await Future<void>.delayed(Duration.zero);
+    }
+
+    test('the meeting number is remembered while it runs and cleared when it ends', () async {
+      await joinAndGetIn();
+      expect(state().number, '81234567890');
+      expect(state().inProgress, isTrue);
+      service.updates.add(const MeetingStatusUpdate(status: 'Ended'));
+      await Future<void>.delayed(Duration.zero);
+      expect(state().number, isNull);
+      expect(state().inProgress, isFalse);
+    });
+
+    test('an early "Idle" before we got in does not cancel the join', () async {
+      await setUpContainer();
+      await controller().join(meetingNumber: '81234567890', displayName: 'A');
+      service.updates.add(const MeetingStatusUpdate(status: 'Idle'));
+      await Future<void>.delayed(Duration.zero);
+      expect(state().phase, MeetingPhase.joining);
+    });
+
+    test('"Idle" after being in the meeting ends it', () async {
+      await joinAndGetIn();
+      service.updates.add(const MeetingStatusUpdate(status: 'Idle'));
+      await Future<void>.delayed(Duration.zero);
+      expect(state().phase, MeetingPhase.idle);
+    });
+
+    test('minimizing keeps the meeting running', () async {
+      await joinAndGetIn();
+      service.minimizedEvents.add(null);
+      await Future<void>.delayed(Duration.zero);
+      expect(state().phase, MeetingPhase.inMeeting);
+    });
+
+    test('returnToMeeting asks Zoom to bring it back; it does nothing when there is no meeting', () async {
+      await setUpContainer();
+      await controller().returnToMeeting();
+      expect(service.returned, 0);
+
+      await controller().join(meetingNumber: '81234567890', displayName: 'A');
+      service.updates.add(const MeetingStatusUpdate(status: 'InMeeting'));
+      await Future<void>.delayed(Duration.zero);
+      await controller().returnToMeeting();
+      expect(service.returned, 1);
+    });
+
+    test('if returning fails because the meeting is gone, the app cleans up', () async {
+      await joinAndGetIn();
+      service
+        ..returnFails = true
+        ..zoomState = 'Idle';
+      await controller().returnToMeeting();
+      expect(state().phase, MeetingPhase.idle);
+    });
+
+    test('coming back to the app catches a meeting that ended while we were away', () async {
+      await joinAndGetIn();
+      service.zoomState = 'Ended';
+      await controller().syncWithZoom();
+      expect(state().phase, MeetingPhase.idle);
+    });
+
+    test('coming back to the app catches a missed InMeeting', () async {
+      await setUpContainer();
+      await controller().join(meetingNumber: '81234567890', displayName: 'A');
+      service.zoomState = 'InMeeting';
+      await controller().syncWithZoom();
+      expect(state().phase, MeetingPhase.inMeeting);
+    });
+
+    test('sync does not end a meeting that has not started yet', () async {
+      await setUpContainer();
+      await controller().join(meetingNumber: '81234567890', displayName: 'A');
+      service.zoomState = 'Idle';
+      await controller().syncWithZoom();
+      expect(state().phase, MeetingPhase.joining);
+    });
+
+    test('it asks about the floating window once, and only while the permission is missing', () async {
+      await setUpContainer();
+      service.overlay = true;
+      expect(await controller().shouldAskForOverlay(), isFalse);
+      service.overlay = false;
+      expect(await controller().shouldAskForOverlay(), isTrue);
+      expect(await controller().shouldAskForOverlay(), isFalse, reason: 'not on every join');
+    });
+  });
 }

@@ -1,14 +1,17 @@
 import { useEffect, useState } from 'react';
-import { ActivityIndicator, Alert, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, Alert, AppState, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import Constants, { ExecutionEnvironment } from 'expo-constants';
 
+import { useStore } from '../chat/store';
 import { config } from '../config';
+import { activeMeeting } from '../controllers';
 import { addRecent, formatMeetingNumber, friendlyTokenError, isValidMeetingNumber, normalizeBaseUrl } from '../logic';
 import { loadRecentMeetings, loadServerUrl, saveRecentMeetings, saveServerUrl } from '../storage';
 import { colors } from '../theme';
 import { fetchZoomSignature } from '../services/zoomApi';
 
-type Session = { jwtToken: string; meetingNumber: string; password: string };
+/** Ask about the floating-window permission once per app run (not on every join). */
+let askedOverlay = false;
 
 export default function MeetingScreen({ userId, displayName }: { userId: string; displayName: string }) {
   const [meetingNumber, setMeetingNumber] = useState('');
@@ -16,7 +19,8 @@ export default function MeetingScreen({ userId, displayName }: { userId: string;
   // Editable so a phone can point at the PC running the backend without rebuilding the app.
   const [serverUrl, setServerUrl] = useState(config.apiBaseUrl);
   const [recent, setRecent] = useState<string[]>([]);
-  const [session, setSession] = useState<Session | null>(null);
+  const meeting = useStore(activeMeeting);
+  const [overlayOk, setOverlayOk] = useState(true);
   const [busy, setBusy] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
 
@@ -24,6 +28,22 @@ export default function MeetingScreen({ userId, displayName }: { userId: string;
     loadServerUrl().then((u) => u && setServerUrl(u));
     loadRecentMeetings().then(setRecent);
   }, []);
+
+  // Is the floating mini window allowed? Re-check when the user comes back from the system settings.
+  useEffect(() => {
+    const check = () => activeMeeting.overlayAllowed().then(setOverlayOk);
+    check();
+    const sub = AppState.addEventListener('change', (st) => st === 'active' && check());
+    return () => sub.remove();
+  }, []);
+
+  // Show why a join attempt failed (for example Zoom refused the meeting number).
+  useEffect(() => {
+    if (meeting.error) {
+      setFormError(meeting.error);
+      activeMeeting.clearError();
+    }
+  }, [meeting.error]);
 
   const join = async (numberOverride?: string) => {
     // Zoom is a native module: it is absent in Expo Go and only exists in a dev/production build.
@@ -35,6 +55,25 @@ export default function MeetingScreen({ userId, displayName }: { userId: string;
     if (!mn) return setFormError('Enter the meeting number');
     if (!isValidMeetingNumber(mn)) return setFormError('A meeting number has 9 to 11 digits');
     setFormError(null);
+    if (!(await activeMeeting.overlayAllowed()) && !askedOverlay) {
+      askedOverlay = true;
+      const choice = await new Promise<'allow' | 'skip'>((resolve) =>
+        Alert.alert(
+          'Keep the meeting in a small window?',
+          'To keep using the app while you are in a meeting, allow "Display over other apps". Zoom then shows a small floating window you can tap to go back to full screen.',
+          [
+            { text: 'Not now', style: 'cancel', onPress: () => resolve('skip') },
+            { text: 'Allow', onPress: () => resolve('allow') },
+          ],
+          { cancelable: false },
+        ),
+      );
+      if (choice === 'allow') {
+        await activeMeeting.openOverlaySettings();
+        setFormError('After allowing it, come back and tap Join meeting again.');
+        return;
+      }
+    }
     setBusy(true);
     try {
       const base = normalizeBaseUrl(serverUrl);
@@ -43,7 +82,7 @@ export default function MeetingScreen({ userId, displayName }: { userId: string;
       const next = addRecent(recent, mn);
       setRecent(next);
       saveRecentMeetings(next).catch(() => undefined);
-      setSession({ jwtToken, meetingNumber: mn, password });
+      activeMeeting.start({ jwtToken, meetingNumber: mn, password, userName: displayName || userId });
     } catch (e) {
       setFormError(friendlyTokenError(e, normalizeBaseUrl(serverUrl)));
     } finally {
@@ -51,16 +90,34 @@ export default function MeetingScreen({ userId, displayName }: { userId: string;
     }
   };
 
-  if (session) {
-    // Lazy require so the app still boots (chat tab) where the native module is missing.
-    const ZoomRoom = require('./ZoomRoom').default;
+  if (meeting.phase !== 'idle' && meeting.session) {
+    const joining = meeting.phase === 'joining';
     return (
-      <View style={styles.container}>
-        <ZoomRoom {...session} userName={displayName || userId} />
-        <TouchableOpacity style={styles.linkBtn} onPress={() => setSession(null)}>
-          <Text style={styles.link}>Back</Text>
-        </TouchableOpacity>
-      </View>
+      <ScrollView contentContainerStyle={styles.container}>
+        <Text style={styles.heading}>{joining ? 'Joining the meeting\u2026' : 'You are in a meeting'}</Text>
+        <Text style={styles.number}>{formatMeetingNumber(meeting.session.meetingNumber)}</Text>
+        {joining ? (
+          <ActivityIndicator style={{ marginTop: 16 }} />
+        ) : (
+          <TouchableOpacity style={styles.btn} onPress={() => activeMeeting.returnToMeeting()}>
+            <Text style={styles.btnText}>Return to meeting</Text>
+          </TouchableOpacity>
+        )}
+        <Text style={styles.hint2}>
+          Tip: in the meeting, tap the minimize button (top left). The meeting shrinks to a small window and you can
+          keep using chat. Tap the small window, or "Return" above, to go back to full screen.
+        </Text>
+        {!overlayOk && (
+          <View style={styles.warn}>
+            <Text style={styles.warnText}>
+              The small floating window is off because "Display over other apps" is not allowed.
+            </Text>
+            <TouchableOpacity onPress={() => activeMeeting.openOverlaySettings()}>
+              <Text style={styles.link}>Allow floating window</Text>
+            </TouchableOpacity>
+          </View>
+        )}
+      </ScrollView>
     );
   }
 
@@ -129,4 +186,8 @@ const styles = StyleSheet.create({
   link: { color: colors.primary, fontWeight: '600' },
   recent: { flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 12, borderBottomWidth: StyleSheet.hairlineWidth, borderColor: colors.border },
   recentText: { fontSize: 16, color: colors.text },
+  number: { fontSize: 24, fontWeight: '800', color: colors.text, marginTop: 8 },
+  hint2: { color: colors.textMuted, marginTop: 24 },
+  warn: { marginTop: 20, backgroundColor: '#fff3d6', borderRadius: 10, padding: 12, gap: 8 },
+  warnText: { color: colors.text },
 });

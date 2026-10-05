@@ -21,6 +21,8 @@ sealed class ZoomEvent {
         return ZoomAuthEvent(code: code, name: name);
       case 'authExpired':
         return const ZoomAuthExpiredEvent();
+      case 'minimized':
+        return const ZoomMinimizedEvent();
       case 'meetingStatus':
         return ZoomMeetingStatusEvent(
           status: map['status'] as String? ?? 'Unknown',
@@ -64,6 +66,11 @@ class ZoomMeetingStatusEvent extends ZoomEvent {
   bool get isFailed => status == 'Failed';
   bool get isInMeeting => status == 'InMeeting';
   bool get isEnded => status == 'Ended';
+}
+
+/// The user minimized the meeting; Zoom now shows a small floating window and the app is usable again.
+class ZoomMinimizedEvent extends ZoomEvent {
+  const ZoomMinimizedEvent();
 }
 
 class ZoomUnknownEvent extends ZoomEvent {
@@ -136,6 +143,18 @@ class ZoomMeetingBridge {
       name: res?['name'] as String? ?? 'UNKNOWN',
     );
   }
+
+  /// Whether the user allowed "Display over other apps" (needed for the floating mini window).
+  Future<bool> canDrawOverlays() async => await _method.invokeMethod<bool>('canDrawOverlays') ?? true;
+
+  /// Opens the system screen where that permission can be granted.
+  Future<void> requestOverlayPermission() => _method.invokeMethod<void>('requestOverlayPermission');
+
+  /// Brings the running meeting back to full screen.
+  Future<void> returnToMeeting() => _method.invokeMethod<void>('returnToMeeting');
+
+  /// The current meeting state: `InMeeting`, `Idle`, ...
+  Future<String> meetingState() async => await _method.invokeMethod<String>('meetingState') ?? 'Unknown';
 
   Future<void> uninitialize() => _method.invokeMethod<void>('uninitialize');
 }

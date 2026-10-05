@@ -1,4 +1,5 @@
 import type { ChatEvent, ChatService, Unsubscribe } from '../src/chat/chatService';
+import type { ZoomWindowApi } from '../src/meeting/activeMeeting';
 import { newMessage } from '../src/chat/types';
 import type { ChatChannel, ChatConnection, ChatMessage, ReplyPreview } from '../src/chat/types';
 
@@ -169,3 +170,45 @@ export class FakeChatService implements ChatService {
 }
 
 export const tick = (ms = 0): Promise<void> => new Promise((r) => setTimeout(r, ms));
+
+/** Stands in for the native Zoom SDK's window controls. */
+export class FakeZoomWindow implements ZoomWindowApi {
+  overlay = true;
+  overlayError = false;
+  overlaySettingsOpened = 0;
+  returned = 0;
+  returnError = false;
+  meetingState = 'InMeeting';
+  stateListeners = new Set<(s: string) => void>();
+  minListeners = new Set<() => void>();
+
+  async canDrawOverlays() {
+    if (this.overlayError) throw new Error('no native');
+    return this.overlay;
+  }
+  async requestOverlayPermission() {
+    this.overlaySettingsOpened++;
+  }
+  async returnToMeeting() {
+    if (this.returnError) throw new Error('gone');
+    this.returned++;
+  }
+  async getMeetingState() {
+    return this.meetingState;
+  }
+  onState(l: (s: string) => void) {
+    this.stateListeners.add(l);
+    return () => this.stateListeners.delete(l);
+  }
+  onMinimized(l: () => void) {
+    this.minListeners.add(l);
+    return () => this.minListeners.delete(l);
+  }
+  emitState(s: string) {
+    this.stateListeners.forEach((l) => l(s));
+  }
+  emitMinimized() {
+    this.minListeners.forEach((l) => l());
+  }
+}
+

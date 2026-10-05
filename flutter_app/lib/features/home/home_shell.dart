@@ -4,6 +4,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../auth/session_controller.dart';
 import '../chat/channel_list_controller.dart';
 import '../chat/channel_list_screen.dart';
+import '../meeting/meeting_bar.dart';
+import '../meeting/meeting_controller.dart';
 import '../meeting/meeting_screen.dart';
 import '../settings/server_settings_dialog.dart';
 
@@ -14,12 +16,13 @@ class HomeShell extends ConsumerStatefulWidget {
   ConsumerState<HomeShell> createState() => _HomeShellState();
 }
 
-class _HomeShellState extends ConsumerState<HomeShell> {
+class _HomeShellState extends ConsumerState<HomeShell> with WidgetsBindingObserver {
   int _index = 0;
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     // Connect to chat as soon as the signed-in shell appears.
     WidgetsBinding.instance.addPostFrameCallback((_) {
       final user = ref.read(sessionProvider);
@@ -29,6 +32,20 @@ class _HomeShellState extends ConsumerState<HomeShell> {
             .start(userId: user.userId, nickname: user.displayName);
       }
     });
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  /// Back from the full-screen meeting (or from Settings): Zoom events may have been missed.
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      ref.read(meetingControllerProvider.notifier).syncWithZoom();
+    }
   }
 
   Future<void> _signOut() async {
@@ -71,9 +88,16 @@ class _HomeShellState extends ConsumerState<HomeShell> {
         ],
       ),
       // IndexedStack keeps the chat list and its scroll position alive while on the Meeting tab.
-      body: IndexedStack(
-        index: _index,
-        children: const [ChannelListScreen(), MeetingScreen()],
+      body: Column(
+        children: [
+          const MeetingBar(),
+          Expanded(
+            child: IndexedStack(
+              index: _index,
+              children: const [ChannelListScreen(), MeetingScreen()],
+            ),
+          ),
+        ],
       ),
       floatingActionButton: _index == 0
           ? FloatingActionButton.extended(

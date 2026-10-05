@@ -20,6 +20,10 @@ void main() {
           return false;
         case 'joinMeeting':
           return {'code': 0, 'name': 'MEETING_ERROR_SUCCESS'};
+        case 'canDrawOverlays':
+          return false;
+        case 'meetingState':
+          return 'InMeeting';
       }
       return null;
     });
@@ -79,6 +83,32 @@ void main() {
     test('auth expiry and unknown types', () {
       expect(ZoomEvent.fromMap({'type': 'authExpired'}), isA<ZoomAuthExpiredEvent>());
       expect(ZoomEvent.fromMap({'type': 'wat'}), isA<ZoomUnknownEvent>());
+    });
+  });
+
+  group('floating mini window', () {
+    test('canDrawOverlays asks the platform', () async {
+      expect(await ZoomMeetingBridge().canDrawOverlays(), isFalse);
+      expect(calls.single.method, 'canDrawOverlays');
+    });
+
+    test('requestOverlayPermission opens the system settings', () async {
+      await ZoomMeetingBridge().requestOverlayPermission();
+      expect(calls.single.method, 'requestOverlayPermission');
+    });
+
+    test('returnToMeeting brings the meeting back', () async {
+      await ZoomMeetingBridge().returnToMeeting();
+      expect(calls.single.method, 'returnToMeeting');
+    });
+
+    test('meetingState reports what Zoom says', () async {
+      expect(await ZoomMeetingBridge().meetingState(), 'InMeeting');
+    });
+
+    test('the minimized event is understood', () {
+      final event = ZoomEvent.fromMap({'type': 'minimized'});
+      expect(event, isA<ZoomMinimizedEvent>());
     });
   });
 }

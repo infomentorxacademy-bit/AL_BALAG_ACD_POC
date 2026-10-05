@@ -59,6 +59,7 @@ Every push builds the APKs in GitHub Actions and publishes them to one rolling r
   typing indicator, read receipts (one tick sent, two blue ticks seen), date separators, earlier-message paging,
   members list, retry for failed sends.
 - **Meeting tab**: join a Zoom meeting inside the app (native Zoom Meeting SDK) with friendly error messages.
+  - **Mini window**: after joining, allow "Display over other apps" once, then tap minimize in Zoom. The meeting shrinks to a small floating window; a green "In a meeting · Return" bar shows on every screen so chat stays usable. Return restores full screen. (Android; needs on-device verification.)
 - **Server setting** (top bar): point the app at your backend at run time, no rebuild.
 
 ## Credentials

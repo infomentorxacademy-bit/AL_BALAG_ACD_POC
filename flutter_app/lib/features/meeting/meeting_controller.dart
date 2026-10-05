@@ -14,21 +14,36 @@ class MeetingState {
     this.phase = MeetingPhase.idle,
     this.error,
     this.recent = const [],
+    this.number,
   });
 
   final MeetingPhase phase;
   final String? error;
+
+  /// The meeting being joined or attended (digits only).
+  final String? number;
 
   /// Most recent meeting numbers (digits only), newest first.
   final List<String> recent;
 
   bool get busy => phase == MeetingPhase.preparing || phase == MeetingPhase.joining;
 
-  MeetingState copyWith({MeetingPhase? phase, String? error, bool clearError = false, List<String>? recent}) =>
+  /// A meeting is being joined or attended: the join form is replaced by the meeting card.
+  bool get inProgress => phase == MeetingPhase.joining || phase == MeetingPhase.inMeeting;
+
+  MeetingState copyWith({
+    MeetingPhase? phase,
+    String? error,
+    bool clearError = false,
+    List<String>? recent,
+    String? number,
+    bool clearNumber = false,
+  }) =>
       MeetingState(
         phase: phase ?? this.phase,
         error: clearError ? null : (error ?? this.error),
         recent: recent ?? this.recent,
+        number: clearNumber ? null : (number ?? this.number),
       );
 }
 
@@ -44,15 +59,23 @@ const joinWatchdogTimeout = Duration(seconds: 45);
 
 class MeetingController extends Notifier<MeetingState> {
   StreamSubscription<MeetingStatusUpdate>? _sub;
+  StreamSubscription<void>? _minSub;
   Timer? _watchdog;
+
+  /// Zoom can report "Idle" before a join has even started: only believe it once we were in the meeting.
+  bool _seenInMeeting = false;
+  bool _askedOverlay = false;
 
   @override
   MeetingState build() {
     ref.onDispose(() {
       _sub?.cancel();
+      _minSub?.cancel();
       _watchdog?.cancel();
     });
-    _sub = ref.read(meetingServiceProvider).statusUpdates.listen(_onStatus);
+    final service = ref.read(meetingServiceProvider);
+    _sub = service.statusUpdates.listen(_onStatus);
+    _minSub = service.minimized.listen((_) => _onMinimized());
     final recent = ref.read(sharedPreferencesProvider).getStringList(_recentKey) ?? const [];
     return MeetingState(recent: recent);
   }
@@ -69,7 +92,8 @@ class MeetingController extends Notifier<MeetingState> {
       state = state.copyWith(phase: MeetingPhase.error, error: problem);
       return;
     }
-    state = state.copyWith(phase: MeetingPhase.preparing, clearError: true);
+    _seenInMeeting = false;
+    state = state.copyWith(phase: MeetingPhase.preparing, clearError: true, number: number);
     try {
       await ref.read(meetingServiceProvider).join(
             meetingNumber: number,
@@ -110,18 +134,71 @@ class MeetingController extends Notifier<MeetingState> {
     _watchdog?.cancel();
     switch (update.status) {
       case 'InMeeting':
+        _seenInMeeting = true;
         state = state.copyWith(phase: MeetingPhase.inMeeting, clearError: true);
       case 'Failed':
         state = state.copyWith(
           phase: MeetingPhase.error,
+          clearNumber: true,
           error: update.errorMessage ?? 'Could not join the meeting.',
         );
       case 'Ended' || 'Idle':
-        if (state.phase == MeetingPhase.inMeeting || state.phase == MeetingPhase.joining) {
-          state = state.copyWith(phase: MeetingPhase.idle, clearError: true);
-        }
+        final over = update.status == 'Ended' || _seenInMeeting;
+        if (over && state.inProgress) _finish();
       default:
         break;
+    }
+  }
+
+  void _finish() => state = state.copyWith(phase: MeetingPhase.idle, clearError: true, clearNumber: true);
+
+  void _onMinimized() {
+    if (state.inProgress) {
+      _seenInMeeting = true;
+      state = state.copyWith(phase: MeetingPhase.inMeeting);
+    }
+  }
+
+  // ---- keeping the meeting reachable while the user uses the app ----
+
+  /// Whether the floating mini window may be shown ("Display over other apps").
+  Future<bool> overlayAllowed() => ref.read(meetingServiceProvider).overlayAllowed();
+
+  Future<void> openOverlaySettings() => ref.read(meetingServiceProvider).openOverlaySettings();
+
+  /// True once per app run, and only while the permission is missing: time to explain and ask.
+  Future<bool> shouldAskForOverlay() async {
+    if (_askedOverlay) return false;
+    if (await overlayAllowed()) return false;
+    _askedOverlay = true;
+    return true;
+  }
+
+  /// Back to the full-screen meeting.
+  Future<void> returnToMeeting() async {
+    if (!state.inProgress) return;
+    try {
+      await ref.read(meetingServiceProvider).returnToMeeting();
+    } on Exception {
+      // The meeting may have just ended; check, and clean up if so.
+      await syncWithZoom();
+    }
+  }
+
+  /// Call when the app comes back to the foreground: Zoom events may have been missed.
+  Future<void> syncWithZoom() async {
+    if (!state.inProgress) return;
+    final String zoomState;
+    try {
+      zoomState = await ref.read(meetingServiceProvider).meetingState();
+    } on Exception {
+      return;
+    }
+    if (zoomState == 'InMeeting') {
+      _seenInMeeting = true;
+      state = state.copyWith(phase: MeetingPhase.inMeeting);
+    } else if (_seenInMeeting && (zoomState == 'Idle' || zoomState == 'Ended')) {
+      _finish();
     }
   }
 

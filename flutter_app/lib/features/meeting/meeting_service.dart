@@ -27,6 +27,21 @@ class MeetingStatusUpdate {
 abstract class MeetingService {
   Stream<MeetingStatusUpdate> get statusUpdates;
 
+  /// The user minimized the meeting: Zoom now shows a small floating window and the app is usable.
+  Stream<void> get minimized;
+
+  /// Whether "Display over other apps" is allowed (needed for the floating window).
+  Future<bool> overlayAllowed();
+
+  /// Opens the system screen where that permission can be granted.
+  Future<void> openOverlaySettings();
+
+  /// Brings the running meeting back to full screen.
+  Future<void> returnToMeeting();
+
+  /// The current Zoom meeting state: `InMeeting`, `Idle`, ...
+  Future<String> meetingState();
+
   /// Authorizes (first time only) and asks Zoom to join. Throws [MeetingException].
   Future<void> join({
     required String meetingNumber,
@@ -49,12 +64,34 @@ class ZoomMeetingService implements MeetingService {
   final http.Client _http;
 
   final _status = StreamController<MeetingStatusUpdate>.broadcast();
+  final _minimized = StreamController<void>.broadcast();
   StreamSubscription<ZoomEvent>? _sub;
   Completer<ZoomAuthEvent>? _authWaiter;
   bool _authorized = false;
 
   @override
   Stream<MeetingStatusUpdate> get statusUpdates => _status.stream;
+
+  @override
+  Stream<void> get minimized => _minimized.stream;
+
+  @override
+  Future<bool> overlayAllowed() async {
+    try {
+      return await _bridge.canDrawOverlays();
+    } on Exception {
+      return true; // Unknown: do not nag.
+    }
+  }
+
+  @override
+  Future<void> openOverlaySettings() => _bridge.requestOverlayPermission();
+
+  @override
+  Future<void> returnToMeeting() => _bridge.returnToMeeting();
+
+  @override
+  Future<String> meetingState() => _bridge.meetingState();
 
   void _listen() {
     _sub ??= _bridge.events.listen(_onEvent);
@@ -73,6 +110,8 @@ class ZoomMeetingService implements MeetingService {
           status: event.status,
           errorMessage: event.isFailed ? friendlyZoomMessage(event.errorName) : null,
         ));
+      case ZoomMinimizedEvent():
+        _minimized.add(null);
       case ZoomUnknownEvent():
         break;
     }

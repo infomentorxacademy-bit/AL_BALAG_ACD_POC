@@ -15,14 +15,34 @@ class MeetingScreen extends ConsumerStatefulWidget {
   ConsumerState<MeetingScreen> createState() => _MeetingScreenState();
 }
 
-class _MeetingScreenState extends ConsumerState<MeetingScreen> {
+class _MeetingScreenState extends ConsumerState<MeetingScreen> with WidgetsBindingObserver {
   final _formKey = GlobalKey<FormState>();
   final _number = TextEditingController();
   final _passcode = TextEditingController();
   bool _hidePasscode = true;
+  bool _overlayOk = true;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    _checkOverlay();
+  }
+
+  Future<void> _checkOverlay() async {
+    final ok = await ref.read(meetingControllerProvider.notifier).overlayAllowed();
+    if (mounted && ok != _overlayOk) setState(() => _overlayOk = ok);
+  }
+
+  /// Coming back from the system Settings screen: the permission may have changed.
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) _checkOverlay();
+  }
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _number.dispose();
     _passcode.dispose();
     super.dispose();
@@ -33,11 +53,88 @@ class _MeetingScreenState extends ConsumerState<MeetingScreen> {
     FocusScope.of(context).unfocus();
     final user = ref.read(sessionProvider);
     if (user == null) return;
-    await ref.read(meetingControllerProvider.notifier).join(
+    final controller = ref.read(meetingControllerProvider.notifier);
+    if (await controller.shouldAskForOverlay()) {
+      if (!mounted) return;
+      final allow = await _askForFloatingWindow();
+      if (allow) {
+        await controller.openOverlaySettings();
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+            content: Text('After allowing it, come back and tap Join meeting again.'),
+          ));
+        }
+        return;
+      }
+    }
+    await controller.join(
           meetingNumber: _number.text,
           displayName: user.displayName,
           passcode: _passcode.text,
         );
+  }
+
+  Future<bool> _askForFloatingWindow() async {
+    final allow = await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (d) => AlertDialog(
+        title: const Text('Keep the meeting in a small window?'),
+        content: const Text(
+          'To keep using the app while you are in a meeting, allow "Display over other apps". '
+          'Zoom then shows a small floating window you can tap to go back to full screen.',
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(d, false), child: const Text('Not now')),
+          FilledButton(onPressed: () => Navigator.pop(d, true), child: const Text('Allow')),
+        ],
+      ),
+    );
+    return allow ?? false;
+  }
+
+  Widget _inMeetingCard(MeetingState meeting) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final joining = meeting.phase == MeetingPhase.joining;
+    final number = meeting.number == null ? '' : formatMeetingNumber(meeting.number!);
+    return ListView(
+      padding: const EdgeInsets.all(20),
+      children: [
+        Text(joining ? 'Joining the meeting\u2026' : 'You are in a meeting',
+            style: theme.textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w700)),
+        const SizedBox(height: 6),
+        Text(number, style: theme.textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w800)),
+        const SizedBox(height: 20),
+        if (joining)
+          const Center(child: CircularProgressIndicator())
+        else
+          FilledButton.icon(
+            onPressed: ref.read(meetingControllerProvider.notifier).returnToMeeting,
+            icon: const Icon(Icons.open_in_full),
+            label: const Text('Return to meeting'),
+          ),
+        const SizedBox(height: 24),
+        Text(
+          'Tip: in the meeting, tap the minimize button (top left). The meeting shrinks to a small window and you '
+          'can keep using chat. Tap the small window, or "Return" above, to go back to full screen.',
+          style: theme.textTheme.bodyMedium?.copyWith(color: scheme.onSurfaceVariant),
+        ),
+        if (!_overlayOk) ...[
+          const SizedBox(height: 20),
+          _Banner(
+            icon: Icons.picture_in_picture_alt_outlined,
+            color: scheme.tertiaryContainer,
+            onColor: scheme.onTertiaryContainer,
+            text: 'The small floating window is off because "Display over other apps" is not allowed.',
+            action: TextButton(
+              onPressed: ref.read(meetingControllerProvider.notifier).openOverlaySettings,
+              child: const Text('Allow floating window'),
+            ),
+          ),
+        ],
+      ],
+    );
   }
 
   @override
@@ -46,6 +143,8 @@ class _MeetingScreenState extends ConsumerState<MeetingScreen> {
     final server = ref.watch(apiBaseUrlProvider);
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
+
+    if (meeting.inProgress) return _inMeetingCard(meeting);
 
     return ListView(
       padding: const EdgeInsets.all(20),
@@ -117,15 +216,6 @@ class _MeetingScreenState extends ConsumerState<MeetingScreen> {
             onColor: scheme.onErrorContainer,
             text: meeting.error!,
             onClose: ref.read(meetingControllerProvider.notifier).dismissError,
-          ),
-        ],
-        if (meeting.phase == MeetingPhase.inMeeting) ...[
-          const SizedBox(height: 16),
-          _Banner(
-            icon: Icons.videocam,
-            color: scheme.primaryContainer,
-            onColor: scheme.onPrimaryContainer,
-            text: 'You are in a meeting.',
           ),
         ],
         if (meeting.recent.isNotEmpty) ...[
@@ -213,6 +303,7 @@ class _Banner extends StatelessWidget {
     required this.onColor,
     required this.text,
     this.onClose,
+    this.action,
   });
 
   final IconData icon;
@@ -220,6 +311,7 @@ class _Banner extends StatelessWidget {
   final Color onColor;
   final String text;
   final VoidCallback? onClose;
+  final Widget? action;
 
   @override
   Widget build(BuildContext context) {
@@ -232,7 +324,12 @@ class _Banner extends StatelessWidget {
           children: [
             Icon(icon, color: onColor),
             const SizedBox(width: 10),
-            Expanded(child: Text(text, style: TextStyle(color: onColor))),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [Text(text, style: TextStyle(color: onColor)), ?action],
+              ),
+            ),
             if (onClose != null)
               IconButton(
                 visualDensity: VisualDensity.compact,

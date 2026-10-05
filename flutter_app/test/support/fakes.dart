@@ -165,8 +165,34 @@ class FakeMeetingService implements MeetingService {
   MeetingException? joinError;
   final joined = <({String number, String name, String? passcode})>[];
 
+  final minimizedEvents = StreamController<void>.broadcast();
+  bool overlay = true;
+  bool overlayCheckFails = false;
+  int overlaySettingsOpened = 0;
+  int returned = 0;
+  bool returnFails = false;
+  String zoomState = 'InMeeting';
+
   @override
   Stream<MeetingStatusUpdate> get statusUpdates => updates.stream;
+
+  @override
+  Stream<void> get minimized => minimizedEvents.stream;
+
+  @override
+  Future<bool> overlayAllowed() async => overlay;
+
+  @override
+  Future<void> openOverlaySettings() async => overlaySettingsOpened++;
+
+  @override
+  Future<void> returnToMeeting() async {
+    if (returnFails) throw Exception('gone');
+    returned++;
+  }
+
+  @override
+  Future<String> meetingState() async => zoomState;
 
   @override
   Future<void> join({

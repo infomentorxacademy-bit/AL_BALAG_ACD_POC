@@ -180,11 +180,11 @@ void main() {
     await tester.pump();
     await tester.pump();
 
-    expect(find.text('Joining…'), findsOneWidget);
-    // Zoom reports progress; the in-meeting banner shows and the form unlocks after it ends.
+    expect(find.text('Joining the meeting\u2026'), findsWidgets);
+    // Zoom reports progress; the meeting card shows, and the join form returns after it ends.
     meeting.updates.add(const MeetingStatusUpdate(status: 'InMeeting'));
     await tester.pump();
-    expect(find.text('You are in a meeting.'), findsOneWidget);
+    expect(find.text('You are in a meeting'), findsOneWidget);
     meeting.updates.add(const MeetingStatusUpdate(status: 'Ended'));
     await tester.pumpAndSettle();
 
@@ -380,5 +380,134 @@ void main() {
 
     expect(chat.left, [demoUrl]);
     expect(find.text('POC Demo Room'), findsNothing);
+  });
+
+  group('a meeting that keeps running while you use the app', () {
+    Future<FakeMeetingService> joinAndGetIn(WidgetTester tester) async {
+      final (app, _, meeting) = await _app(prefs: {'user_id': 'alice', 'display_name': 'Alice A'});
+      await tester.pumpWidget(app);
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Meeting').last);
+      await tester.pumpAndSettle();
+      await tester.enterText(find.widgetWithText(TextFormField, 'Meeting number'), '81234567890');
+      await tester.tap(find.text('Join meeting'));
+      await tester.pump(const Duration(milliseconds: 100)); // not settled: the join watchdog must not fire
+      meeting.updates.add(const MeetingStatusUpdate(status: 'InMeeting'));
+      await tester.pumpAndSettle();
+      return meeting;
+    }
+
+    testWidgets('the Meeting tab becomes a card with a Return button', (tester) async {
+      final meeting = await joinAndGetIn(tester);
+      expect(find.text('You are in a meeting'), findsOneWidget);
+      expect(find.text('812 3456 7890'), findsWidgets);
+      expect(find.text('Join meeting'), findsNothing); // the form is out of the way
+      expect(find.textContaining('minimize button'), findsOneWidget);
+
+      await tester.tap(find.text('Return to meeting'));
+      await tester.pumpAndSettle();
+      expect(meeting.returned, 1);
+    });
+
+    testWidgets('on the Chats tab a green bar offers Return, and chat still works', (tester) async {
+      final meeting = await joinAndGetIn(tester);
+      await tester.tap(find.text('Chats').last);
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('meeting-bar')), findsOneWidget);
+      expect(find.textContaining('In a meeting'), findsOneWidget);
+
+      await tester.tap(find.text('Return'));
+      await tester.pumpAndSettle();
+      expect(meeting.returned, 1);
+
+      // The chat list is fully usable meanwhile, and the bar follows you around.
+      await tester.tap(find.text('POC Demo Room'));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('meeting-bar')), findsNothing, reason: 'a conversation is its own full screen');
+      await tester.pageBack();
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('meeting-bar')), findsOneWidget);
+    });
+
+    testWidgets('when the meeting ends the bar disappears and the join form comes back', (tester) async {
+      final meeting = await joinAndGetIn(tester);
+      meeting.updates.add(const MeetingStatusUpdate(status: 'Ended'));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('meeting-bar')), findsNothing);
+      expect(find.text('Join meeting'), findsOneWidget);
+    });
+
+    testWidgets('minimizing keeps the meeting running', (tester) async {
+      final meeting = await joinAndGetIn(tester);
+      meeting.minimizedEvents.add(null);
+      await tester.pumpAndSettle();
+      expect(find.text('You are in a meeting'), findsOneWidget);
+    });
+
+    testWidgets('the card warns when the floating window is not allowed, with a way to allow it', (tester) async {
+      final meeting = await joinAndGetIn(tester);
+      meeting.overlay = false;
+      // Coming back to the app re-checks the permission.
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+      await tester.pumpAndSettle();
+      expect(find.textContaining('floating window is off'), findsOneWidget);
+      await tester.tap(find.text('Allow floating window'));
+      await tester.pumpAndSettle();
+      expect(meeting.overlaySettingsOpened, 1);
+    });
+  });
+
+  group('floating window permission', () {
+    Future<FakeMeetingService> toMeetingTab(WidgetTester tester, {required bool overlay}) async {
+      final (app, _, meeting) = await _app(prefs: {'user_id': 'alice'});
+      meeting.overlay = overlay;
+      await tester.pumpWidget(app);
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Meeting').last);
+      await tester.pumpAndSettle();
+      await tester.enterText(find.widgetWithText(TextFormField, 'Meeting number'), '81234567890');
+      return meeting;
+    }
+
+    testWidgets('missing: it explains, and Allow opens Settings without joining yet', (tester) async {
+      final meeting = await toMeetingTab(tester, overlay: false);
+      await tester.tap(find.text('Join meeting'));
+      await tester.pumpAndSettle();
+      expect(find.text('Keep the meeting in a small window?'), findsOneWidget);
+
+      await tester.tap(find.text('Allow'));
+      await tester.pumpAndSettle();
+      expect(meeting.overlaySettingsOpened, 1);
+      expect(meeting.joined, isEmpty, reason: 'the user must allow it first, then tap Join again');
+      expect(find.textContaining('tap Join meeting again'), findsOneWidget);
+    });
+
+    testWidgets('Not now still lets the meeting start, and it does not ask again', (tester) async {
+      final meeting = await toMeetingTab(tester, overlay: false);
+      await tester.tap(find.text('Join meeting'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Not now'));
+      await tester.pumpAndSettle();
+      expect(meeting.joined.single.number, '81234567890');
+
+      meeting.updates.add(const MeetingStatusUpdate(status: 'InMeeting'));
+      await tester.pumpAndSettle();
+      meeting.updates.add(const MeetingStatusUpdate(status: 'Ended'));
+      await tester.pumpAndSettle();
+      await tester.enterText(find.widgetWithText(TextFormField, 'Meeting number'), '81234567890');
+      await tester.tap(find.text('Join meeting'));
+      await tester.pumpAndSettle();
+      expect(find.text('Keep the meeting in a small window?'), findsNothing);
+      expect(meeting.joined, hasLength(2));
+    });
+
+    testWidgets('already allowed: no question, it just joins', (tester) async {
+      final meeting = await toMeetingTab(tester, overlay: true);
+      await tester.tap(find.text('Join meeting'));
+      await tester.pumpAndSettle();
+      expect(find.text('Keep the meeting in a small window?'), findsNothing);
+      expect(meeting.joined, hasLength(1));
+    });
   });
 }

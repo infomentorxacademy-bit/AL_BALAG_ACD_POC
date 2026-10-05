@@ -26,3 +26,134 @@ index 2a0ac0a..69d0504 100644
  
    def found = false
    def defaultDir = null
+diff --git a/node_modules/@zoom/meetingsdk-react-native/android/src/main/java/com/reactnativezoom/sdk/RNZoomSDKModule.java b/node_modules/@zoom/meetingsdk-react-native/android/src/main/java/com/reactnativezoom/sdk/RNZoomSDKModule.java
+index afd607b..2d8bc53 100644
+--- a/node_modules/@zoom/meetingsdk-react-native/android/src/main/java/com/reactnativezoom/sdk/RNZoomSDKModule.java
++++ b/node_modules/@zoom/meetingsdk-react-native/android/src/main/java/com/reactnativezoom/sdk/RNZoomSDKModule.java
+@@ -1,6 +1,11 @@
+ package com.reactnativezoom.sdk;
+ 
++import android.app.Activity;
+ import android.app.Service;
++import android.content.Intent;
++import android.net.Uri;
++import android.os.Build;
++import android.provider.Settings;
+ import android.util.DisplayMetrics;
+ import android.util.Log;
+ import android.view.Display;
+@@ -43,6 +48,9 @@ import us.zoom.sdk.InMeetingShareController;
+ 
+ import us.zoom.sdk.MeetingViewsOptions;
+ import us.zoom.sdk.JoinMeetingOptions;
++import us.zoom.sdk.CustomizedMiniMeetingViewSize;
++import us.zoom.sdk.SimpleZoomUIDelegate;
++import us.zoom.sdk.ZoomUIService;
+ import us.zoom.sdk.MeetingService;
+ import us.zoom.sdk.ZoomSDK;
+ import us.zoom.sdk.MeetingSettingsHelper;
+@@ -101,6 +109,7 @@ public class RNZoomSDKModule extends ReactContextBaseJavaModule implements ZoomS
+         "onJoinMeetingConfirmed",
+         "onMeetingStateChange",
+         "onAuthIdentityExpired",
++        "onMeetingMinimized",
+     };
+   }
+ 
+@@ -331,6 +340,72 @@ public class RNZoomSDKModule extends ReactContextBaseJavaModule implements ZoomS
+     });
+   }
+ 
++  /** True when the user has allowed "Display over other apps" (needed for the floating mini window). */
++  @ReactMethod
++  public void canDrawOverlays(Promise promise) {
++    promise.resolve(Build.VERSION.SDK_INT < Build.VERSION_CODES.M || Settings.canDrawOverlays(reactContext));
++  }
++
++  /** Opens the system screen where the user can allow "Display over other apps" for this app. */
++  @ReactMethod
++  public void requestOverlayPermission(Promise promise) {
++    try {
++      Intent intent = new Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
++          Uri.parse("package:" + reactContext.getPackageName()));
++      Activity activity = reactContext.getCurrentActivity();
++      if (activity != null) {
++        activity.startActivity(intent);
++      } else {
++        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
++        reactContext.startActivity(intent);
++      }
++      promise.resolve(true);
++    } catch (Exception e) {
++      promise.reject("overlay_permission_failure", e);
++    }
++  }
++
++  /** Brings the running meeting back to full screen (from the mini window or from the app). */
++  @ReactMethod
++  public void returnToMeeting(final Promise promise) {
++    final Activity activity = reactContext.getCurrentActivity();
++    if (activity == null) {
++      promise.reject("no_activity", "No current activity");
++      return;
++    }
++    activity.runOnUiThread(new Runnable() {
++      @Override
++      public void run() {
++        try {
++          MeetingService meetingService = ZoomSDK.getInstance().getMeetingService();
++          if (meetingService == null) {
++            promise.reject("no_meeting_service", "Zoom SDK is not initialized");
++            return;
++          }
++          meetingService.returnToMeeting(activity);
++          promise.resolve(true);
++        } catch (Exception e) {
++          promise.reject("return_to_meeting_failure", e);
++        }
++      }
++    });
++  }
++
++  /** The current meeting state, e.g. "InMeeting" or "Idle". */
++  @ReactMethod
++  public void getMeetingState(Promise promise) {
++    try {
++      MeetingService meetingService = ZoomSDK.getInstance().getMeetingService();
++      if (meetingService == null) {
++        promise.resolve("Idle");
++        return;
++      }
++      promise.resolve(RNZoomSDKEnumConvert.getMeetingStatusStr(meetingService.getMeetingStatus()));
++    } catch (Exception e) {
++      promise.reject("meeting_state_failure", e);
++    }
++  }
++
+   @ReactMethod
+   public void muteMyVideo(boolean mute, Promise promise) {
+     if (Utils.checkRNActivity(reactContext, promise)) {
+@@ -408,8 +483,21 @@ public class RNZoomSDKModule extends ReactContextBaseJavaModule implements ZoomS
+       // Enable Zoom's custom floating mini-meeting window (uses SYSTEM_ALERT_WINDOW).
+       // Without this the minimize button silently falls back to Android PIP, which
+       // many emulators/devices don't support.
+-      if (zoomSDK.getZoomUIService() != null) {
+-        zoomSDK.getZoomUIService().enableMinimizeMeeting(true);
++      ZoomUIService uiService = zoomSDK.getZoomUIService();
++      if (uiService != null) {
++        uiService.enableMinimizeMeeting(true);
++        // Small floating window while the user works in the app. Constructor order is
++        // (topMargin, rightMargin, width, height), in pixels.
++        float density = reactContext.getResources().getDisplayMetrics().density;
++        uiService.setMiniMeetingViewSize(new CustomizedMiniMeetingViewSize(
++            (int) (96 * density), (int) (12 * density), (int) (112 * density), (int) (152 * density)));
++        // Tell JS when the user minimizes the meeting so the app can show a "Return to meeting" bar.
++        uiService.setZoomUIDelegate(new SimpleZoomUIDelegate() {
++          @Override
++          public void afterMeetingMinimized(Activity activity) {
++            sendEvent(reactContext, "onMeetingMinimized", null);
++          }
++        });
+       }
+     }
+ 
