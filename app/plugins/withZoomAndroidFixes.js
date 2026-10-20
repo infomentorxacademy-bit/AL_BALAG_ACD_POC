@@ -78,6 +78,23 @@ function withCleartext(config) {
 //    but it cannot run on 32-bit phones or on x86 emulators.
 function withSlimBuild(config) {
   if (process.env.SLIM_BUILD !== '1') return config;
+  // Zoom's code is 124 MB of .dex files; Android 9+ lets them be stored uncompressed, which is what Gradle
+  // does by default. Compress them (about 124 -> 45 MB).
+  config = withAppBuildGradle(config, (cfg) => {
+    if (!cfg.modResults.contents.includes('// slim-dex')) {
+      cfg.modResults.contents += `
+// slim-dex
+android {
+    packaging {
+        dex {
+            useLegacyPackaging = true
+        }
+    }
+}
+`;
+    }
+    return cfg;
+  });
   return withGradleProperties(config, (cfg) => {
     const set = (key, value) => {
       cfg.modResults = cfg.modResults.filter((p) => !(p.type === 'property' && p.key === key));
