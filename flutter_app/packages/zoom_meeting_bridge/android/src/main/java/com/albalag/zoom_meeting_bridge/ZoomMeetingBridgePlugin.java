@@ -296,6 +296,7 @@ public class ZoomMeetingBridgePlugin
         params.displayName = displayName;
         params.password = password;
 
+        configureMiniWindow(); // the user may have granted the floating-window permission since init
         int code = meetingService.joinMeetingWithParams(uiContext(), params, options);
         result.success(codeMap(code, constantName(MeetingError.class, code, "MEETING_ERROR_")));
       } catch (Exception e) {
@@ -330,7 +331,9 @@ public class ZoomMeetingBridgePlugin
     if (ui == null) {
       return;
     }
-    ui.enableMinimizeMeeting(true);
+    // Never use Android's picture-in-picture (it shrinks the whole app); minimize only to the floating window.
+    ui.disablePIPMode(true);
+    ui.enableMinimizeMeeting(Build.VERSION.SDK_INT < Build.VERSION_CODES.M || Settings.canDrawOverlays(uiContext()));
     float density = uiContext().getResources().getDisplayMetrics().density;
     // Constructor order is (topMargin, rightMargin, width, height), in pixels.
     ui.setMiniMeetingViewSize(new CustomizedMiniMeetingViewSize(

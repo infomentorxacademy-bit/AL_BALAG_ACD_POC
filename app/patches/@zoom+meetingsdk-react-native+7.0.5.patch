@@ -27,7 +27,7 @@ index 2a0ac0a..69d0504 100644
    def found = false
    def defaultDir = null
 diff --git a/node_modules/@zoom/meetingsdk-react-native/android/src/main/java/com/reactnativezoom/sdk/RNZoomSDKModule.java b/node_modules/@zoom/meetingsdk-react-native/android/src/main/java/com/reactnativezoom/sdk/RNZoomSDKModule.java
-index afd607b..2d8bc53 100644
+index afd607b..9723638 100644
 --- a/node_modules/@zoom/meetingsdk-react-native/android/src/main/java/com/reactnativezoom/sdk/RNZoomSDKModule.java
 +++ b/node_modules/@zoom/meetingsdk-react-native/android/src/main/java/com/reactnativezoom/sdk/RNZoomSDKModule.java
 @@ -1,6 +1,11 @@
@@ -60,7 +60,15 @@ index afd607b..2d8bc53 100644
      };
    }
  
-@@ -331,6 +340,72 @@ public class RNZoomSDKModule extends ReactContextBaseJavaModule implements ZoomS
+@@ -196,6 +205,7 @@ public class RNZoomSDKModule extends ReactContextBaseJavaModule implements ZoomS
+       @Override
+       public void run() {
+         try {
++          applyMiniWindowSettings();
+           MeetingService meetingService = ZoomSDK.getInstance().getMeetingService();
+           if (meetingService == null) {
+             promise.reject("joinMeeting_failure",
+@@ -331,6 +341,72 @@ public class RNZoomSDKModule extends ReactContextBaseJavaModule implements ZoomS
      });
    }
  
@@ -133,27 +141,53 @@ index afd607b..2d8bc53 100644
    @ReactMethod
    public void muteMyVideo(boolean mute, Promise promise) {
      if (Utils.checkRNActivity(reactContext, promise)) {
-@@ -408,8 +483,21 @@ public class RNZoomSDKModule extends ReactContextBaseJavaModule implements ZoomS
-       // Enable Zoom's custom floating mini-meeting window (uses SYSTEM_ALERT_WINDOW).
-       // Without this the minimize button silently falls back to Android PIP, which
-       // many emulators/devices don't support.
+@@ -392,6 +468,35 @@ public class RNZoomSDKModule extends ReactContextBaseJavaModule implements ZoomS
+   }
+ 
+   // -----------------------------------------------------------------------------------------------
++  /**
++   * Floating mini-window settings. Called again before every join, because the user may have granted
++   * "Display over other apps" after the SDK was first initialized.
++   */
++  private void applyMiniWindowSettings() {
++    ZoomUIService uiService = ZoomSDK.getInstance().getZoomUIService();
++    if (uiService == null) {
++      return;
++    }
++    // Never use Android's picture-in-picture: it shrinks the whole app, not just the meeting.
++    uiService.disablePIPMode(true);
++    // Minimize only when the floating window may be shown; otherwise hide the button instead of
++    // doing something surprising.
++    boolean canFloat = Build.VERSION.SDK_INT < Build.VERSION_CODES.M || Settings.canDrawOverlays(reactContext);
++    uiService.enableMinimizeMeeting(canFloat);
++    // Small floating window while the user works in the app. Constructor order is
++    // (topMargin, rightMargin, width, height), in pixels.
++    float density = reactContext.getResources().getDisplayMetrics().density;
++    uiService.setMiniMeetingViewSize(new CustomizedMiniMeetingViewSize(
++        (int) (96 * density), (int) (12 * density), (int) (112 * density), (int) (152 * density)));
++    // Tell JS when the user minimizes the meeting so the app can show a "Return to meeting" bar.
++    uiService.setZoomUIDelegate(new SimpleZoomUIDelegate() {
++      @Override
++      public void afterMeetingMinimized(Activity activity) {
++        sendEvent(reactContext, "onMeetingMinimized", null);
++      }
++    });
++  }
++
+   // region ZoomSDKInitializeListener
+   // -----------------------------------------------------------------------------------------------
+ 
+@@ -405,12 +510,7 @@ public class RNZoomSDKModule extends ReactContextBaseJavaModule implements ZoomS
+       if (meetingService != null) {
+         meetingService.addListener(this);
+       }
+-      // Enable Zoom's custom floating mini-meeting window (uses SYSTEM_ALERT_WINDOW).
+-      // Without this the minimize button silently falls back to Android PIP, which
+-      // many emulators/devices don't support.
 -      if (zoomSDK.getZoomUIService() != null) {
 -        zoomSDK.getZoomUIService().enableMinimizeMeeting(true);
-+      ZoomUIService uiService = zoomSDK.getZoomUIService();
-+      if (uiService != null) {
-+        uiService.enableMinimizeMeeting(true);
-+        // Small floating window while the user works in the app. Constructor order is
-+        // (topMargin, rightMargin, width, height), in pixels.
-+        float density = reactContext.getResources().getDisplayMetrics().density;
-+        uiService.setMiniMeetingViewSize(new CustomizedMiniMeetingViewSize(
-+            (int) (96 * density), (int) (12 * density), (int) (112 * density), (int) (152 * density)));
-+        // Tell JS when the user minimizes the meeting so the app can show a "Return to meeting" bar.
-+        uiService.setZoomUIDelegate(new SimpleZoomUIDelegate() {
-+          @Override
-+          public void afterMeetingMinimized(Activity activity) {
-+            sendEvent(reactContext, "onMeetingMinimized", null);
-+          }
-+        });
-       }
+-      }
++      applyMiniWindowSettings();
      }
  
+     WritableMap params = Arguments.createMap();
