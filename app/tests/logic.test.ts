@@ -80,3 +80,84 @@ describe('date and time labels', () => {
     assert.ok(!sameDay(noon, noon + 24 * 3600 * 1000));
   });
 });
+
+import {
+  formatWhen,
+  meetingTiming,
+  parseIds,
+  parseLocalDateTime,
+  timeAgo,
+  toDateInput,
+  toTimeInput,
+  validateAnnouncement,
+  validateMeetingForm,
+} from '../src/logic';
+
+test('parseLocalDateTime accepts real dates and rejects impossible ones', () => {
+  const d = parseLocalDateTime('2026-03-05', '9:05');
+  assert.ok(d);
+  assert.deepEqual([d.getFullYear(), d.getMonth(), d.getDate(), d.getHours(), d.getMinutes()], [2026, 2, 5, 9, 5]);
+  assert.equal(parseLocalDateTime('2026-02-30', '10:00'), null);
+  assert.equal(parseLocalDateTime('2026-03-05', '24:00'), null);
+  assert.equal(parseLocalDateTime('2026-03-05', '10:60'), null);
+  assert.equal(parseLocalDateTime('05/03/2026', '10:00'), null);
+  assert.equal(parseLocalDateTime('', ''), null);
+});
+
+test('date and time inputs round-trip', () => {
+  const d = new Date(2026, 0, 9, 7, 3);
+  assert.equal(toDateInput(d), '2026-01-09');
+  assert.equal(toTimeInput(d), '07:03');
+  assert.equal(parseLocalDateTime(toDateInput(d), toTimeInput(d))?.getTime(), d.getTime());
+});
+
+test('formatWhen says today, tomorrow, yesterday, then the date', () => {
+  const now = new Date(2026, 2, 5, 12, 0);
+  assert.equal(formatWhen(new Date(2026, 2, 5, 14, 30).toISOString(), now), 'Today, 14:30');
+  assert.equal(formatWhen(new Date(2026, 2, 6, 9, 0).toISOString(), now), 'Tomorrow, 09:00');
+  assert.equal(formatWhen(new Date(2026, 2, 4, 9, 0).toISOString(), now), 'Yesterday, 09:00');
+  assert.equal(formatWhen(new Date(2026, 2, 9, 9, 0).toISOString(), now), 'Mon 9 Mar, 09:00');
+  assert.equal(formatWhen('garbage', now), '');
+});
+
+test('timeAgo', () => {
+  const now = new Date(2026, 2, 5, 12, 0);
+  const ago = (min: number) => new Date(now.getTime() - min * 60000).toISOString();
+  assert.equal(timeAgo(ago(0), now), 'just now');
+  assert.equal(timeAgo(ago(5), now), '5 min ago');
+  assert.equal(timeAgo(ago(180), now), '3 h ago');
+  assert.equal(timeAgo(ago(60 * 24 * 2), now), '2 d ago');
+  assert.equal(timeAgo(ago(60 * 24 * 30), now), '3 Feb');
+});
+
+test('meetingTiming: joining opens 10 minutes early and closes when the meeting is over', () => {
+  const now = new Date(2026, 2, 5, 12, 0);
+  const at = (min: number) => new Date(now.getTime() + min * 60000).toISOString();
+  assert.equal(meetingTiming(at(5), 60, now), 'live'); // starts in 5 min
+  assert.equal(meetingTiming(at(10), 60, now), 'live');
+  assert.equal(meetingTiming(at(11), 60, now), 'soon');
+  assert.equal(meetingTiming(at(60), 60, now), 'soon');
+  assert.equal(meetingTiming(at(61), 60, now), 'upcoming');
+  assert.equal(meetingTiming(at(-30), 60, now), 'live'); // started half an hour ago
+  assert.equal(meetingTiming(at(-61), 60, now), 'past');
+});
+
+test('parseIds splits on commas, spaces and semicolons without duplicates', () => {
+  assert.deepEqual(parseIds('alice, bob  carol;alice\n dave'), ['alice', 'bob', 'carol', 'dave']);
+  assert.deepEqual(parseIds('  , '), []);
+});
+
+test('announcement and meeting form validation', () => {
+  assert.equal(validateAnnouncement('', 'x'), 'Enter a title');
+  assert.equal(validateAnnouncement('t', ' '), 'Write the announcement');
+  assert.match(validateAnnouncement('t'.repeat(121), 'x') ?? '', /too long/);
+  assert.equal(validateAnnouncement('Hi', 'There'), null);
+
+  const ok = { title: 'Class', meetingNumber: '812 3456 7890', date: '2026-03-05', time: '10:00', duration: '60' };
+  assert.equal(validateMeetingForm(ok), null);
+  assert.equal(validateMeetingForm({ ...ok, title: ' ' }), 'Enter a title');
+  assert.match(validateMeetingForm({ ...ok, meetingNumber: '123' }) ?? '', /9 to 11 digits/);
+  assert.match(validateMeetingForm({ ...ok, date: '2026-13-01' }) ?? '', /YYYY-MM-DD/);
+  assert.match(validateMeetingForm({ ...ok, duration: '2' }) ?? '', /5 to 1440/);
+  assert.match(validateMeetingForm({ ...ok, duration: 'abc' }) ?? '', /5 to 1440/);
+});

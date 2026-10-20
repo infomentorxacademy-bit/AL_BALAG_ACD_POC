@@ -30,6 +30,7 @@ pip install -r requirements.txt
 uvicorn main:app --host 0.0.0.0 --port 8000
 ```
 Put your Zoom SDK key and secret only in `server\.env` (never commit it).
+Also set `ADMIN_KEY=` (any long phrase you choose; typing it under Advanced on the login screen makes you an admin) and `APP_JWT_SECRET=` (a long random string).
 Find your PC's LAN IP with `ipconfig` (IPv4 Address). The phone and PC must be on the same Wi-Fi.
 
 ## 5. Flutter app (phone connected by USB, USB debugging on)

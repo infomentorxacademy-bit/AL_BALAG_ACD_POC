@@ -4,14 +4,18 @@ import time
 
 import jwt
 from dotenv import load_dotenv
-from fastapi import FastAPI, HTTPException
+from fastapi import Depends, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
+
+from auth import optional_auth
+from routes import router
 
 load_dotenv()
 
 app = FastAPI(title="AL Balag POC API")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
+app.include_router(router)
 
 TOKEN_TTL_SECONDS = 2 * 60 * 60
 
@@ -33,7 +37,7 @@ def health() -> dict:
 
 
 @app.post("/zoom/signature", response_model=SignatureResponse)
-def zoom_signature(req: SignatureRequest) -> SignatureResponse:
+def zoom_signature(req: SignatureRequest, _user: dict | None = Depends(optional_auth)) -> SignatureResponse:
     sdk_key = os.getenv("ZOOM_SDK_KEY")
     sdk_secret = os.getenv("ZOOM_SDK_SECRET")
     if not sdk_key or not sdk_secret:

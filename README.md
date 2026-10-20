@@ -37,6 +37,21 @@ A proof of concept for **in-app chat** (Sendbird) and **in-app Zoom meetings** (
    flutter run --dart-define=API_BASE_URL=http://<your-computer-LAN-IP>:8000
    ```
 
+## React Native app (main app) at a glance
+
+Five tabs: **Home** (next meeting, unread counts, latest news), **Chats** (Sendbird), **Meetings** (scheduled list with
+one-tap Join, or Join with ID), **News** (announcements) and **Profile** (account, server address, floating-window status).
+
+- **Accounts**: sign in with a user id; the backend issues a token. Enter the *admin key* under "Advanced" to sign in as an
+  admin (set `ADMIN_KEY` in `server/.env`).
+- **Admins** can post announcements (pinned or not) and schedule Zoom meetings for everyone or for chosen user ids.
+  Members see their meetings with the number and passcode already filled in.
+- **Announcements** appear within ~30 s (and when the app is reopened) with an unread badge and a banner.
+  Push notifications while the app is closed need Firebase credentials and are not set up yet.
+- **Zoom** runs inside the app with a floating mini window and a green Return bar on every screen.
+- Server settings (`server/.env`): `ZOOM_SDK_KEY`, `ZOOM_SDK_SECRET`, `ADMIN_KEY`, `APP_JWT_SECRET`, optional `REQUIRE_AUTH=true`
+  (then `/zoom/signature` needs a signed-in user), `DB_PATH`. See [`server/README.md`](server/README.md) for the API.
+
 ## Install on a phone (no PC toolchain needed)
 
 Every push builds the APKs in GitHub Actions and publishes them to one rolling release. Open this on the phone:

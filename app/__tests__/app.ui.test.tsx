@@ -4,7 +4,15 @@ import { Alert } from 'react-native';
 
 jest.mock('../src/controllers', () => {
   const t = require('./testApp');
-  return { channelList: t.channelList, conversation: t.conversation, activeMeeting: t.activeMeeting, chatService: t.fake };
+  return {
+    channelList: t.channelList,
+    conversation: t.conversation,
+    activeMeeting: t.activeMeeting,
+    chatService: t.fake,
+    sessionStore: t.sessionStore,
+    api: t.api,
+    portal: t.portal,
+  };
 });
 // The real Zoom host needs the native SDK. This stand-in answers the join request like Zoom would.
 jest.mock('../src/screens/ZoomRoom', () => {
@@ -25,25 +33,39 @@ jest.mock('../src/screens/ZoomRoom', () => {
 
 import App from '../App';
 import { chan, msg } from '../tests/fakes';
-import { activeMeeting, channelList, fake, joined, joinResult, resetFake, zoom } from './testApp';
+import { activeMeeting, backend, channelList, fake, joined, joinResult, resetFake, resetSession, sessionStore, zoom } from './testApp';
 
 beforeEach(async () => {
   resetFake();
+  resetSession();
   await channelList.stop();
   await AsyncStorage.clear();
   fake.channels = [chan({ lastMessage: 'bob: Welcome to the room' })];
   fake.history = [msg('1', 'Welcome to the room')];
   jest.spyOn(Alert, 'alert').mockImplementation(() => undefined);
-  (global as { fetch?: unknown }).fetch = jest.fn();
 });
 
-async function signedInApp(userId = 'alice', displayName = 'Alice A') {
-  await AsyncStorage.setItem('user_id', userId);
-  await AsyncStorage.setItem('display_name', displayName);
+/** Opens the app as an already signed-in person. Lands on the Chats tab unless told otherwise. */
+async function signedInApp(userId = 'alice', displayName = 'Alice A', opts: { role?: 'admin' | 'user'; tab?: 'home' | 'chats' } = {}) {
+  const role = opts.role ?? 'user';
+  backend.users.set(userId, { display_name: displayName, role });
+  await AsyncStorage.multiSet([
+    ['user_id', userId],
+    ['display_name', displayName],
+    ['auth_token', `tok-${userId}-${role}`],
+    ['user_role', role],
+  ]);
   await render(<App />);
-  await screen.findByText('POC Demo Room');
-  return userEvent.setup();
+  await screen.findByText(/^Good (morning|afternoon|evening|night),/);
+  const user = userEvent.setup();
+  if ((opts.tab ?? 'chats') === 'chats') {
+    await user.press(screen.getByLabelText('Chats tab'));
+    await screen.findByText('POC Demo Room');
+  }
+  return user;
 }
+
+const goTo = async (user: ReturnType<typeof userEvent.setup>, tab: string) => user.press(screen.getByLabelText(`${tab} tab`));
 
 test('login: validates the user id, then shows the chat list', async () => {
   await render(<App />);
@@ -58,15 +80,16 @@ test('login: validates the user id, then shows the chat list', async () => {
   await user.clear(screen.getByPlaceholderText(/User id/));
   await user.type(screen.getByPlaceholderText(/User id/), 'alice');
   await user.press(screen.getByText('Continue'));
-  expect(await screen.findByText('POC Demo Room')).toBeTruthy();
+  expect(await screen.findByText(/^Good (morning|afternoon|evening|night), alice/)).toBeTruthy();
   expect(await AsyncStorage.getItem('user_id')).toBe('alice');
+  expect(await AsyncStorage.getItem('auth_token')).toBe('tok-alice-user');
+  expect(await AsyncStorage.getItem('user_role')).toBe('user');
 });
 
 test('an already signed-in user goes straight to the app', async () => {
-  await signedInApp();
+  await signedInApp('alice', 'Alice A', { tab: 'home' });
   expect(screen.queryByText('Continue')).toBeNull();
-  expect(screen.getAllByText('Chats')).toHaveLength(2); // header + tab
-  expect(screen.getByText('Meeting')).toBeTruthy();
+  for (const tab of ['Home', 'Chats', 'Meetings', 'News', 'Profile']) expect(screen.getByLabelText(`${tab} tab`)).toBeTruthy();
 });
 
 test('opening a chat and going back works', async () => {
@@ -111,20 +134,22 @@ test('sign out disconnects chat and returns to login', async () => {
     buttons?.find((b: { text: string }) => b.text === 'Sign out')?.onPress?.(),
   );
   const user = await signedInApp();
-  await user.press(screen.getByLabelText('Account'));
+  await goTo(user, 'Profile');
+  await user.press(screen.getByLabelText('Sign out'));
   expect(await screen.findByText('Continue')).toBeTruthy();
   expect(fake.disconnected).toBe(true);
   expect(await AsyncStorage.getItem('user_id')).toBeNull();
+  expect(await AsyncStorage.getItem('auth_token')).toBeNull();
 });
 
 describe('meeting tab', () => {
   async function toMeeting() {
     const user = await signedInApp();
-    await user.press(screen.getByText('Meeting'));
+    await goTo(user, 'Meetings');
+    await user.press(await screen.findByText('Join with ID'));
     await screen.findByText('Join a Zoom meeting');
     return user;
   }
-  const token = () => (global.fetch as jest.Mock).mockResolvedValue({ ok: true, json: async () => ({ signature: 'JWT' }) });
 
   test('validates the meeting number', async () => {
     const user = await toMeeting();
@@ -135,27 +160,24 @@ describe('meeting tab', () => {
     expect(await screen.findByText('A meeting number has 9 to 11 digits')).toBeTruthy();
   });
 
-  test('fetches a token from the chosen server, joins as the signed-in name, and remembers the meeting', async () => {
-    token();
+  test('fetches a token with the signed-in account, joins as that name, and remembers the meeting', async () => {
+    await sessionStore.setServerUrl('192.168.1.20:8000/');
     const user = await toMeeting();
-    const server = screen.getByPlaceholderText('http://192.168.1.20:8000');
-    await user.clear(server);
-    await user.type(server, '192.168.1.20:8000/');
     await user.type(screen.getByPlaceholderText('123 4567 8901'), '81234567890');
     await user.press(screen.getByText('Join meeting'));
 
     await waitFor(() => expect(joined).toEqual(['81234567890']));
     expect(activeMeeting.state.session?.userName).toBe('Alice A');
-    const [url, init] = (global.fetch as jest.Mock).mock.calls[0];
-    expect(url).toBe('http://192.168.1.20:8000/zoom/signature');
-    expect(JSON.parse(init.body).meeting_number).toBe('81234567890');
+    const call = backend.calls.find((c) => c.path === '/zoom/signature');
+    expect(call?.auth).toBe('Bearer tok-alice-user');
+    expect((call?.body as { meeting_number: string }).meeting_number).toBe('81234567890');
     expect(await AsyncStorage.getItem('server_url')).toBe('http://192.168.1.20:8000');
     expect(JSON.parse((await AsyncStorage.getItem('recent_meetings')) ?? '[]')).toEqual(['81234567890']);
   });
 
   test('an unreachable server gets actionable advice', async () => {
-    (global.fetch as jest.Mock).mockRejectedValue(new TypeError('Network request failed'));
     const user = await toMeeting();
+    backend.down = true;
     await user.type(screen.getByPlaceholderText('123 4567 8901'), '81234567890');
     await user.press(screen.getByText('Join meeting'));
     expect(await screen.findByText(/Cannot reach the server at/)).toBeTruthy();
@@ -164,23 +186,21 @@ describe('meeting tab', () => {
   });
 
   test('a misconfigured server (500) explains the likely cause', async () => {
-    (global.fetch as jest.Mock).mockResolvedValue({ ok: false, status: 500, text: async () => 'ZOOM_SDK_KEY not configured' });
     const user = await toMeeting();
+    backend.failNext.set('/zoom/signature', 500);
     await user.type(screen.getByPlaceholderText('123 4567 8901'), '81234567890');
     await user.press(screen.getByText('Join meeting'));
-    expect(await screen.findByText(/misconfigured/)).toBeTruthy();
+    expect(await screen.findByText(/forced 500/)).toBeTruthy();
   });
 
   test('recent meetings can be re-joined in one tap', async () => {
     await AsyncStorage.setItem('recent_meetings', JSON.stringify(['81234567890']));
-    token();
     const user = await toMeeting();
     await user.press(await screen.findByText('812 3456 7890'));
     await waitFor(() => expect(joined).toEqual(['81234567890']));
   });
 
   test('Zoom refusing the join shows why and returns to the form', async () => {
-    token();
     joinResult.value = 'MEETING_ERROR_INCORRECT_MEETING_NUMBER';
     const user = await toMeeting();
     await user.type(screen.getByPlaceholderText('123 4567 8901'), '81234567890');
@@ -191,12 +211,11 @@ describe('meeting tab', () => {
 });
 
 describe('a meeting that keeps running while you use the app', () => {
-  const token = () => (global.fetch as jest.Mock).mockResolvedValue({ ok: true, json: async () => ({ signature: 'JWT' }) });
 
   async function joinAndGetIn() {
-    token();
     const user = await signedInApp();
-    await user.press(screen.getByText('Meeting'));
+    await goTo(user, 'Meetings');
+    await user.press(await screen.findByText('Join with ID'));
     await user.type(await screen.findByPlaceholderText('123 4567 8901'), '81234567890');
     await user.press(screen.getByText('Join meeting'));
     await waitFor(() => expect(joined).toEqual(['81234567890']));
@@ -215,7 +234,7 @@ describe('a meeting that keeps running while you use the app', () => {
 
   test('on the Chats tab a green bar offers Return, and chat still works', async () => {
     const user = await joinAndGetIn();
-    await user.press(screen.getByText('Chats'));
+    await goTo(user, 'Chats');
     expect(await screen.findByLabelText('meeting bar')).toBeTruthy();
     expect(screen.getByText(/In a meeting/)).toBeTruthy();
 
@@ -230,29 +249,30 @@ describe('a meeting that keeps running while you use the app', () => {
 
   test('the Zoom host joins exactly once, even though the app re-renders around it', async () => {
     const user = await joinAndGetIn();
-    await user.press(screen.getByText('Chats'));
+    await goTo(user, 'Chats');
     await act(async () => fake.emit({ type: 'channelChanged', channelUrl: 'x', channel: chan({ url: 'x', title: 'X' }) }));
-    await user.press(screen.getByText('Meeting'));
+    await goTo(user, 'Meetings');
     expect(joined).toEqual(['81234567890']);
   });
 
   test('when the meeting ends the bar disappears and the join form comes back', async () => {
     const user = await joinAndGetIn();
-    await user.press(screen.getByText('Chats'));
+    await goTo(user, 'Chats');
     await act(async () => zoom.emitState('Ended'));
     await waitFor(() => expect(screen.queryByLabelText('meeting bar')).toBeNull());
-    await user.press(screen.getByText('Meeting'));
+    await goTo(user, 'Meetings');
+    await user.press(await screen.findByText('Join with ID'));
     expect(await screen.findByText('Join a Zoom meeting')).toBeTruthy();
   });
 
   test('without the floating-window permission it asks once, and can send you to Settings', async () => {
     zoom.overlay = false;
-    token();
     (Alert.alert as jest.Mock).mockImplementation((_t, _m, buttons) =>
       buttons?.find((b: { text: string }) => b.text === 'Allow')?.onPress?.(),
     );
     const user = await signedInApp();
-    await user.press(screen.getByText('Meeting'));
+    await goTo(user, 'Meetings');
+    await user.press(await screen.findByText('Join with ID'));
     await user.type(await screen.findByPlaceholderText('123 4567 8901'), '81234567890');
     await user.press(screen.getByText('Join meeting'));
     await waitFor(() => expect(zoom.overlaySettingsOpened).toBe(1));
@@ -262,12 +282,12 @@ describe('a meeting that keeps running while you use the app', () => {
 
   test('declining the permission still lets the meeting start', async () => {
     zoom.overlay = false;
-    token();
     (Alert.alert as jest.Mock).mockImplementation((_t, _m, buttons) =>
       buttons?.find((b: { text: string }) => b.text === 'Not now')?.onPress?.(),
     );
     const user = await signedInApp();
-    await user.press(screen.getByText('Meeting'));
+    await goTo(user, 'Meetings');
+    await user.press(await screen.findByText('Join with ID'));
     await user.type(await screen.findByPlaceholderText('123 4567 8901'), '81234567890');
     await user.press(screen.getByText('Join meeting'));
     await waitFor(() => expect(joined).toEqual(['81234567890']));
@@ -278,7 +298,8 @@ describe('a meeting that keeps running while you use the app', () => {
       buttons?.find((b: { text: string }) => b.text === 'Sign out')?.onPress?.(),
     );
     const user = await joinAndGetIn();
-    await user.press(screen.getByLabelText('Account'));
+    await goTo(user, 'Profile');
+    await user.press(screen.getByLabelText('Sign out'));
     expect(await screen.findByText('Continue')).toBeTruthy();
     expect(activeMeeting.state.phase).toBe('idle');
   });
