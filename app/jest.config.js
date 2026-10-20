@@ -2,6 +2,8 @@
 // plain Node (`npm test`); these need the React Native preset (`npm run test:ui`).
 module.exports = {
   preset: 'jest-expo',
+  // The first test in a file also pays for compiling the screens; CI runners are slower than a laptop.
+  testTimeout: 30000,
   testMatch: ['<rootDir>/__tests__/**/*.test.tsx'],
   setupFiles: ['<rootDir>/__tests__/setup.ts'],
   transformIgnorePatterns: [

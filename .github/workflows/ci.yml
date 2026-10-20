@@ -204,4 +204,4 @@ jobs:
           gh release delete latest --cleanup-tag --yes --repo "$GITHUB_REPOSITORY" || true
           gh release create latest out/*.apk --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --prerelease \
             --title "Latest build" \
-            --notes "Built from commit $GITHUB_SHA. Flutter = main app (use the debug APK for testing). ReactNative = comparison build."
+            --notes "Built from commit $GITHUB_SHA. USE: AL-Balag-ReactNative-slim.apk (main app, 64-bit ARM phones, smallest). Fallback if the slim one misbehaves: AL-Balag-ReactNative-release.apk (all phone types, much larger). The Flutter APKs are the older comparison app."
