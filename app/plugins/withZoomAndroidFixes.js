@@ -12,6 +12,7 @@ const {
   withAppBuildGradle,
   withAndroidManifest,
   withDangerousMod,
+  withGradleProperties,
 } = require('@expo/config-plugins');
 
 const COMPOSE = '1.9.4';
@@ -71,4 +72,21 @@ function withCleartext(config) {
   ]);
 }
 
-module.exports = (config) => withCleartext(withComposePin(config));
+// 3. Slim build (SLIM_BUILD=1): only 64-bit ARM phones (practically every phone since ~2017) and the native
+//    libraries stored compressed inside the APK. Zoom's libraries are ~550 MB uncompressed across the four
+//    CPU types; this keeps one and compresses it. Slower to install than the normal build is not an issue,
+//    but it cannot run on 32-bit phones or on x86 emulators.
+function withSlimBuild(config) {
+  if (process.env.SLIM_BUILD !== '1') return config;
+  return withGradleProperties(config, (cfg) => {
+    const set = (key, value) => {
+      cfg.modResults = cfg.modResults.filter((p) => !(p.type === 'property' && p.key === key));
+      cfg.modResults.push({ type: 'property', key, value });
+    };
+    set('reactNativeArchitectures', 'arm64-v8a');
+    set('expo.useLegacyPackaging', 'true');
+    return cfg;
+  });
+}
+
+module.exports = (config) => withSlimBuild(withCleartext(withComposePin(config)));
